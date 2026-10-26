@@ -2,6 +2,9 @@ package com.floss83.diag;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
@@ -33,7 +36,10 @@ import java.util.Locale;
  *    تلقائيًا وتُحفظ في ملف النتائج.
  * 2) اختبار بوابة دفع / متجر (أونلاين): تسجيل نتيجة استخدام البطاقة في بوابة أو متجر
  *    حقيقي — الموافقة/كود الرفض/3DS/الخطأ التقني — في نفس ملف النتائج.
- * 3) النتائج: ملف محفوظ (results.jsonl) يعرض كل القراءات والأخطاء، مع مشاركة الملف
+ * 3) بطاقات الاختبار الرسمية (build-12): أرقام الاختبار المعلنة من وثائق البوابات
+ *    الشائعة (Moyasar / MyFatoorah / PayTabs / HyperPay / Checkout.com …) مع زر نسخ،
+ *    لتوحيد المدخلات عند فحص صفحة الدفع ومقارنة ردود البوابة.
+ * 4) النتائج: ملف محفوظ (results.jsonl) يعرض كل القراءات والأخطاء، مع مشاركة الملف
  *    ورفعه لخادم التشخيص.
  */
 public class DiagActivity extends Activity {
@@ -47,8 +53,8 @@ public class DiagActivity extends Activity {
     private long confirmedAmountMinor = -1;
     private TextView confirmLabel;
     private EditText posAmount, gwStore, gwAmount, gwCode, gwNotes, hostEdit;
-    private Spinner gwNetwork, gwOutcome;
-    private LinearLayout resultsBox;
+    private Spinner gwNetwork, gwOutcome, cardGateway;
+    private LinearLayout resultsBox, cardsBox;
 
     private static final String[] NETWORKS = {"Visa", "MasterCard", "Amex", "mada", "أخرى"};
     private static final String[] OUTCOMES = {
@@ -80,6 +86,7 @@ public class DiagActivity extends Activity {
 
         buildPosSection(box);
         buildGatewaySection(box);
+        buildTestCardsSection(box);
         buildResultsSection(box);
     }
 
@@ -142,7 +149,7 @@ public class DiagActivity extends Activity {
                             Toast.LENGTH_LONG).show();
                 } catch (ActivityNotFoundException e) {
                     Toast.makeText(DiagActivity.this,
-                            "ثبّت تطبيق المحفظة FlossPay أولًا (نفس الإصدار build-11)", Toast.LENGTH_LONG).show();
+                            "ثبّت تطبيق المحفظة FlossPay أولًا (نفس الإصدار build-12)", Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -237,9 +244,123 @@ public class DiagActivity extends Activity {
         box.addView(save);
     }
 
+    private void buildTestCardsSection(LinearLayout box) {
+        TextView h = new TextView(this);
+        h.setText("💳 3) بطاقات اختبار البوابات (رسمية)");
+        h.setTextSize(16);
+        h.setTypeface(null, Typeface.BOLD);
+        h.setPadding(0, dp(12), 0, dp(4));
+        box.addView(h);
+
+        TextView warn = new TextView(this);
+        warn.setText("⚠️ هذه الأرقام من وثائق كل بوابة الرسمية، وتعمل فقط في وضع التجربة (Test/Sandbox) لدى البوابة. في صفحة الدفع الحقيقية (Live) سيُرفض أيٌّ منها — وهذا متوقع وليس عطلًا. الفائدة: نفس الرقم في كل محاولة ⇒ تقارن رد البوابة عبر المبالغ والمتاجر، وتسجّل النتيجة في القسم 2 أعلاه.");
+        warn.setTextSize(12);
+        warn.setPadding(dp(4), 0, dp(4), dp(6));
+        box.addView(warn);
+
+        cardGateway = new Spinner(this);
+        String[] names = new String[GatewayCards.GATEWAYS.length];
+        for (int i = 0; i < names.length; i++) names[i] = GatewayCards.GATEWAYS[i].name;
+        ArrayAdapter<String> ga = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, names);
+        ga.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        cardGateway.setAdapter(ga);
+        cardGateway.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                renderGatewayCards(pos);
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
+        box.addView(cardGateway);
+
+        cardsBox = new LinearLayout(this);
+        cardsBox.setOrientation(LinearLayout.VERTICAL);
+        box.addView(cardsBox);
+    }
+
+    private void renderGatewayCards(int idx) {
+        if (cardsBox == null) return;
+        cardsBox.removeAllViews();
+        final GatewayCards.Gateway g = GatewayCards.GATEWAYS[idx];
+
+        TextView note = new TextView(this);
+        note.setText(g.note);
+        note.setTextSize(12);
+        note.setPadding(dp(4), dp(6), dp(4), dp(4));
+        cardsBox.addView(note);
+
+        for (int i = 0; i < g.cards.length; i++) {
+            final GatewayCards.Card c = g.cards[i];
+
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(8);
+            card.setLayoutParams(lp);
+            card.setBackgroundColor(0xFF14406B);
+
+            TextView pan = new TextView(this);
+            pan.setText(c.pan);
+            pan.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            pan.setTextSize(16);
+            pan.setTextColor(0xFFFFFFFF);
+            card.addView(pan);
+
+            TextView meta = new TextView(this);
+            meta.setText(c.network + " | الانتهاء: " + c.expiry + " | CVV: " + c.cvv);
+            meta.setTextSize(12);
+            meta.setTextColor(0xFFBBBBBB);
+            meta.setPadding(0, dp(2), 0, dp(2));
+            card.addView(meta);
+
+            TextView exp = new TextView(this);
+            exp.setText("المتوقع: " + c.expected);
+            exp.setTextSize(12);
+            exp.setTextColor(0xFFDDDDDD);
+            card.addView(exp);
+
+            LinearLayout rowBtns = new LinearLayout(this);
+            rowBtns.setOrientation(LinearLayout.HORIZONTAL);
+
+            Button copyPan = new Button(this);
+            copyPan.setText("📋 نسخ الرقم");
+            copyPan.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    copyText(c.pan, "نُسخ رقم البطاقة");
+                }
+            });
+            rowBtns.addView(copyPan);
+
+            Button copyAll = new Button(this);
+            copyAll.setText("📋 نسخ الرقم + التاريخ + CVV");
+            copyAll.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    copyText(c.pan + " / " + c.expiry + " / " + c.cvv,
+                            "نُسخ الرقم والتاريخ وCVV");
+                }
+            });
+            rowBtns.addView(copyAll);
+
+            card.addView(rowBtns);
+            cardsBox.addView(card);
+        }
+    }
+
+    private void copyText(String text, String toast) {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(ClipData.newPlainText("card", text));
+        Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
+    }
+
     private void buildResultsSection(LinearLayout box) {
         TextView h = new TextView(this);
-        h.setText("📄 3) النتائج — ملف محفوظ (results.jsonl)");
+        h.setText("📄 4) النتائج — ملف محفوظ (results.jsonl)");
         h.setTextSize(16);
         h.setTypeface(null, Typeface.BOLD);
         h.setPadding(0, dp(12), 0, dp(4));
