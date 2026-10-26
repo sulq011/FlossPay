@@ -197,6 +197,20 @@ public class EmvDiag {
         return -1;
     }
 
+    /**
+     * فحص مبلغ الاختبار (build-11): يقارن المبلغ المتوقع من التطبيق الأساسي
+     * بالمبلغ الذي أرسله الجهاز فعليًا للبطاقة.
+     */
+    public static String amountCheckLine(long expectedMinor, long sentMinor) {
+        if (sentMinor < 0) return "— مبلغ الاختبار المتوقع " + formatAmount(expectedMinor)
+                + " ريال، لكن الجهاز لم يرسل أي مبلغ للبطاقة (توقف قبل GPO): لا يمكن مطابقة المبلغ.";
+        if (sentMinor == expectedMinor) return "✔ مبلغ الاختبار " + formatAmount(expectedMinor)
+                + " ريال = المبلغ الذي أرسله الجهاز للبطاقة — المبلغ مُرِّر صحيحًا حتى آخر مرحلة وصلها.";
+        return "⚠️ الجهاز أرسل مبلغًا مختلفًا عن مبلغ الاختبار: المتوقع " + formatAmount(expectedMinor)
+                + " ريال لكن الجهاز مرّر " + formatAmount(sentMinor)
+                + " ريال — خلل في إدخال/تمرير المبلغ عند الجهاز (نمط الأخطاء «غير المنطقية»).";
+    }
+
     /** تصنيف أمر APDU إلى اسم بشري. */
     static String classify(String cmd) {
         if (cmd == null || cmd.length() < 8) return "أمر غير معروف";

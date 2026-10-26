@@ -25,6 +25,8 @@
 
         <activity android:name=".DiagActivity" android:exported="false" />
 
+        <activity android:name=".TestActivity" android:exported="true" android:label="اختبار POS" />
+
         <service
             android:name=".HceService"
             android:exported="true"

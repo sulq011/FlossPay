@@ -256,6 +256,30 @@ public class EmvCardTest {
         // جلسة بلا مبلغ إطلاقًا (PPSE فقط)
         check("PPSE فقط: لا مبلغ", ppseOnly.amountMinor == -1);
 
+        log("=== [17] تعريف الشبكات (CardProfile — قواعد juspay المنقولة) + فحص مبلغ الاختبار ===");
+        check("Visa: 4242...", CardProfile.detect("4242424242424242").equals(CardProfile.NETWORK_VISA));
+        check("Visa Luhn صحيح", CardProfile.luhn("4242424242424242"));
+        check("Luhn خاطئ مرفوض", !CardProfile.luhn("4242424242424241"));
+        check("Visa Electron قبل Visa", CardProfile.detect("4026000000000000").equals(CardProfile.NETWORK_VISA_ELECTRON));
+        check("MasterCard 5-series: 51xxxx", CardProfile.detect("5105105105105100").equals(CardProfile.NETWORK_MASTERCARD));
+        check("MasterCard 2-series الجديدة: 222100", CardProfile.detect("2221000000000009").equals(CardProfile.NETWORK_MASTERCARD));
+        check("Amex: 37...", CardProfile.detect("378282246310005").equals(CardProfile.NETWORK_AMEX));
+        check("Amex Luhn صحيح", CardProfile.luhn("378282246310005"));
+        check("JCB: 3528", CardProfile.detect("3528000000000000").equals(CardProfile.NETWORK_JCB));
+        check("Diners: 36", CardProfile.detect("36000000000000").equals(CardProfile.NETWORK_DINERS));
+        check("Discover: 6011", CardProfile.detect("6011000000000000").equals(CardProfile.NETWORK_DISCOVER));
+        check("Maestro: 5018", CardProfile.detect("5018000000000000").equals(CardProfile.NETWORK_MAESTRO));
+        check("RuPay: 652150", CardProfile.detect("6521500000000000").equals(CardProfile.NETWORK_RUPAY));
+        check("مجموعة Visa", CardProfile.group("4242424242424242") == CardProfile.GROUP_VISA);
+        check("Maestro ضمن مجموعة MasterCard", CardProfile.group("5018000000000000") == CardProfile.GROUP_MASTERCARD);
+        check("Amex مجموعته الخاصة", CardProfile.group("378282246310005") == CardProfile.GROUP_AMEX);
+        check("مجموعة أخرى للمجهول", CardProfile.group("9999999999999999") == CardProfile.GROUP_OTHER);
+        check("اسم مجموعة Visa بالعربي", CardProfile.groupName(CardProfile.GROUP_VISA).contains("Visa"));
+
+        check("فحص مبلغ: تطابق (✔)", EmvDiag.amountCheckLine(40000, 40000).contains("✔"));
+        check("فحص مبلغ: اختلاف (⚠)", EmvDiag.amountCheckLine(40000, 50000).contains("⚠"));
+        check("فحص مبلغ: الجهاز لم يرسل مبلغًا", EmvDiag.amountCheckLine(40000, -1).contains("لم يرسل"));
+
         System.out.println("\n=================================");
         System.out.println("PASS: " + passed + "  FAIL: " + failed);
         System.out.println(failed == 0 ? "✅ ALL TESTS GREEN — المحرك جاهز" : "❌ فشل " + failed + " اختبار");

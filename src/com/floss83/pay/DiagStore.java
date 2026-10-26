@@ -4,13 +4,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * تخزين جلسات التشخيص + رفعها (اختياري) إلى خادم pos_diag.py (build-9).
+ * تخزين جلسات التشخيص + الاختبارات المعلّقة + الرفع للخادم (build-11).
  */
 public class DiagStore {
     private static final String PREFS = "flosspay";
     private static final String KEY = "diag_sessions";
     private static final String HOST_KEY = "diag_host";
     private static final String DEFAULT_HOST = "sull.world:8096";
+    private static final String PENDING_KEY = "pending_test";
     private static final int MAX_SESSIONS = 20;
 
     private static android.content.SharedPreferences prefs(android.content.Context ctx) {
@@ -25,8 +26,39 @@ public class DiagStore {
         prefs(ctx).edit().putString(HOST_KEY, host).apply();
     }
 
-    /** تسجيل جلسة جديدة (تحليل + سجل APDU) وإبقاء آخر 20 جلسة. */
-    public static void record(android.content.Context ctx, java.util.List<EmvDiag.Entry> apdus, EmvDiag.Result res) {
+    // ===== اختبار معلّق (من التطبيق الأساسي FlossDiag) =====
+
+    public static void savePendingTest(android.content.Context ctx, String testId, long amountMinor) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("testId", testId);
+            o.put("amountMinor", amountMinor);
+            o.put("ts", System.currentTimeMillis());
+            prefs(ctx).edit().putString(PENDING_KEY, o.toString()).apply();
+        } catch (Exception ignore) {}
+    }
+
+    public static JSONObject loadPendingTest(android.content.Context ctx) {
+        try {
+            String s = prefs(ctx).getString(PENDING_KEY, "");
+            if (s == null || s.isEmpty()) return null;
+            return new JSONObject(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static void clearPendingTest(android.content.Context ctx) {
+        prefs(ctx).edit().remove(PENDING_KEY).apply();
+    }
+
+    // ===== الجلسات =====
+
+    /**
+     * تسجيل جلسة جديدة (تحليل + سجل APDU) وإبقاء آخر 20 جلسة.
+     * يرجع JSON الجلسة (لتسليمها للتطبيق الأساسي) أو null عند الفشل.
+     */
+    public static JSONObject record(android.content.Context ctx, java.util.List<EmvDiag.Entry> apdus, EmvDiag.Result res) {
         try {
             JSONObject session = new JSONObject();
             session.put("ts", System.currentTimeMillis());
@@ -54,7 +86,10 @@ public class DiagStore {
             all.put(session);
             while (all.length() > MAX_SESSIONS) all.remove(0);
             prefs(ctx).edit().putString(KEY, all.toString()).apply();
-        } catch (Exception ignore) {}
+            return session;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static JSONArray loadAll(android.content.Context ctx) {
@@ -65,7 +100,7 @@ public class DiagStore {
         }
     }
 
-    /** رفع جلسة واحدة إلى الخادم — متزامن، استدعِه من Thread. يرجع true عند نجاح الرفع. */
+    /** رفع جلسة واحدة إلى الخادم — متزامن، استدعِه من Thread. */
     public static boolean upload(android.content.Context ctx, JSONObject session) {
         java.net.HttpURLConnection conn = null;
         try {

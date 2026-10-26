@@ -183,7 +183,28 @@ public class MainActivity extends Activity {
     private void renderCards() {
         cardsBox.removeAllViews();
         String selected = store.getSelectedPan();
-        for (final Card c : cards) {
+        // تجميع البطاقات حسب الشبكة: Visa / MasterCard / أمريكان إكسبريس / الشبكات الأخرى (build-11)
+        int[] groups = {CardProfile.GROUP_VISA, CardProfile.GROUP_MASTERCARD,
+                CardProfile.GROUP_AMEX, CardProfile.GROUP_OTHER};
+        for (int g : groups) {
+            java.util.ArrayList<Card> gc = new java.util.ArrayList<Card>();
+            for (Card c : cards) if (CardProfile.group(c.pan) == g) gc.add(c);
+            if (gc.isEmpty()) continue;
+            TextView header = new TextView(this);
+            header.setTypeface(Typeface.DEFAULT_BOLD);
+            header.setTextSize(15);
+            header.setPadding(dp(8), dp(10), dp(8), dp(6));
+            header.setBackgroundColor(Color.rgb(225, 230, 240));
+            header.setText("💳 " + CardProfile.groupName(g) + "  (" + gc.size() + ")");
+            cardsBox.addView(header);
+            for (final Card c : gc) {
+                renderCardRow(selected, c);
+            }
+        }
+    }
+
+    private void renderCardRow(String selected, final Card c) {
+        {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(dp(12), dp(10), dp(12), dp(10));
@@ -197,7 +218,7 @@ public class MainActivity extends Activity {
             TextView head = new TextView(this);
             head.setTypeface(Typeface.DEFAULT_BOLD);
             head.setTextSize(15);
-            head.setText(Util.brand(c.pan) + " • " + (c.holder == null || c.holder.isEmpty() ? "بدون اسم" : c.holder)
+            head.setText(CardProfile.detect(c.pan) + " • " + (c.holder == null || c.holder.isEmpty() ? "بدون اسم" : c.holder)
                     + (selected != null && selected.equals(c.pan) ? "   ★" : ""));
             row.addView(head);
 

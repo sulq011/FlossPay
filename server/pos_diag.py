@@ -125,8 +125,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self._read_body().decode("utf-8")
             rec = json.loads(body)
-            if not isinstance(rec, dict) or "apdus" not in rec:
-                self._send(400, json.dumps({"error": "bad payload — expected session object with apdus"}))
+            if not isinstance(rec, dict):
+                self._send(400, json.dumps({"error": "bad payload — expected JSON object"}))
                 return
             rec["received_at"] = time.time()
             append_record(rec)
@@ -139,6 +139,18 @@ class Handler(BaseHTTPRequestHandler):
         recs = load_records()
         rows = []
         for r in reversed(recs[-100:]):
+            if r.get("type") == "gateway":
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
+                amt = r.get("amountMinor", -1)
+                amt_html = " — المبلغ: %.2f ريال" % (amt / 100.0) if amt is not None and amt >= 0 else ""
+                code = (" — كود: %s" % r["code"]) if r.get("code") else ""
+                rows.append(
+                    '<div style="background:#14406B;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
+                    '<b>%s</b> — 🌐 بوابة/متجر: %s | %s | %s%s%s<br><small>%s</small>'
+                    "</div>" % (ts, r.get("store", "-"), r.get("network", "-"), r.get("outcome", "-"),
+                                amt_html, code, (r.get("notes", "") or "")[:220])
+                )
+                continue
             stage_num = r.get("stageNum", -1)
             label = STAGE_LABELS.get(stage_num, r.get("stage", "-"))
             color = "#0D3B0D" if stage_num >= 5 else ("#7A4A00" if stage_num >= 2 else "#6A1010")
@@ -147,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
             amt_html = ""
             if amt is not None and amt >= 0:
                 amt_html = " — المبلغ: %.2f ريال" % (amt / 100.0)
+                exp = r.get("expectedAmount", -1)
+                if exp is not None and exp >= 0:
+                    amt_html += " (اختبار: %.2f%s)" % (exp / 100.0, " ✔" if r.get("amountMatch") else " ⚠️ مختلف")
                 if r.get("amountMismatch"):
                     amt_html += ' <b style="color:#ffcc00">⚠️ تضارب مبالغ GPO/GEN AC</b>'
             rows.append(

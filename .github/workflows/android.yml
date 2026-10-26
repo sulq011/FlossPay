@@ -1,4 +1,4 @@
-name: Build FlossPay APK
+name: Build Flossx83 APKs
 
 on:
   push:
@@ -32,16 +32,20 @@ jobs:
       - name: Build APK
         run: bash build.sh
 
-      - name: Upload APK artifact
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: FlossPay-apk
-          path: FlossPay.apk
+          name: Flossx83-apks
+          path: |
+            FlossPay.apk
+            FlossDiag.apk
 
       - name: Release APK
         uses: softprops/action-gh-release@v1
         with:
-          files: FlossPay.apk
+          files: |
+            FlossPay.apk
+            FlossDiag.apk
           tag_name: build-${{ github.run_number }}
           name: "FlossPay build ${{ github.run_number }}"
         env:

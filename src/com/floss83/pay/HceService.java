@@ -122,12 +122,37 @@ public class HceService extends HostApduService {
     public void onDeactivated(int reason) {
         if (emv != null) emv.onDeactivated(); // ينهي الجلسة ويحفظ ATC
 
-        // بوت التشخيص: حلّل الجلسة المنتهية واحفظها (فقط إذا كانت نقاط POS حقيقية أو عقدنا)
+        // بوت التشخيص: حلّل الجلسة المنتهية واحفظها، ومع وجود اختبار معلّق
+        // (من التطبيق الأساسي FlossDiag) قارن المبلغ وسلّم النتيجة له (build-11)
         if (!session.isEmpty()) {
             List<EmvDiag.Entry> snapshot = session;
             try {
                 EmvDiag.Result res = EmvDiag.analyze(snapshot);
-                DiagStore.record(this, snapshot, res);
+                org.json.JSONObject pending = DiagStore.loadPendingTest(this);
+                long expected = -1;
+                String testId = "";
+                if (pending != null) {
+                    expected = pending.optLong("amountMinor", -1);
+                    testId = pending.optString("testId", "");
+                    if (expected >= 0) {
+                        res.verdict += "\n" + EmvDiag.amountCheckLine(expected, res.amountMinor);
+                    }
+                }
+                org.json.JSONObject sessionJson = DiagStore.record(this, snapshot, res);
+                if (pending != null && sessionJson != null) {
+                    sessionJson.put("type", "pos");
+                    sessionJson.put("expectedAmount", expected);
+                    sessionJson.put("amountMatch", res.amountMinor >= 0 && res.amountMinor == expected);
+                    sessionJson.put("testId", testId);
+                    DiagStore.clearPendingTest(this);
+                    // تسليم النتيجة للتطبيق الأساسي (إن كان مثبتًا)
+                    try {
+                        android.content.Intent send = new android.content.Intent();
+                        send.setClassName("com.floss83.diag", "com.floss83.diag.DiagReceiver");
+                        send.putExtra("session", sessionJson.toString());
+                        sendBroadcast(send);
+                    } catch (Exception ignore) {}
+                }
             } catch (Exception ignore) {}
             session = new ArrayList<EmvDiag.Entry>();
             sessionStartMs = 0;
