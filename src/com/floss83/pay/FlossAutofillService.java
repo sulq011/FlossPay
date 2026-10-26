@@ -2,7 +2,6 @@ package com.floss83.pay;
 
 import android.app.assist.AssistStructure;
 import android.os.CancellationSignal;
-import android.service.autofill.AutofillId;
 import android.service.autofill.AutofillService;
 import android.service.autofill.Dataset;
 import android.service.autofill.FillCallback;
@@ -13,6 +12,7 @@ import android.service.autofill.SaveCallback;
 import android.service.autofill.SaveRequest;
 import android.text.InputType;
 import android.view.View;
+import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillValue;
 import android.widget.RemoteViews;
 
@@ -30,7 +30,7 @@ import java.util.Locale;
 public class FlossAutofillService extends AutofillService {
 
     @Override
-    public void onFill(FillRequest request, CancellationSignal signal, final FillCallback callback) {
+    public void onFillRequest(FillRequest request, CancellationSignal signal, final FillCallback callback) {
         try {
             List<FillContext> contexts = request.getFillContexts();
             if (contexts == null || contexts.isEmpty()) {
@@ -42,14 +42,19 @@ public class FlossAutofillService extends AutofillService {
                 callback.onSuccess(null);
                 return;
             }
-            AutofillId focusedId = request.getFocusedId();
-            if (focusedId == null) {
+
+            // الحقل المركّز (الذي ضغط عليه المستخدم) — آخر عقدة focused في الشاشة
+            AssistStructure.ViewNode focused = null;
+            for (int w = 0; w < structure.getWindowNodeCount(); w++) {
+                AssistStructure.ViewNode f = findFocused(structure.getWindowNodeAt(w).getRootViewNode());
+                if (f != null) focused = f;
+            }
+            if (focused == null) {
                 callback.onSuccess(null);
                 return;
             }
-            AssistStructure.ViewNode focused =
-                    findNode(structure.getWindowNodeAt(0).getRootViewNode(), focusedId);
-            if (focused == null || !isFillableCardField(focused)) {
+            AutofillId focusedId = focused.getAutofillId();
+            if (focusedId == null || !isFillableCardField(focused)) {
                 callback.onSuccess(null);
                 return;
             }
@@ -69,12 +74,12 @@ public class FlossAutofillService extends AutofillService {
                         Util.brand(c.pan) + "  " + Util.mask(c.pan));
                 presentation.setTextViewText(R.id.af_sub,
                         (c.holder == null || c.holder.isEmpty() ? "" : c.holder + "  •  ")
-                                + "تنتهي " + c.expiry);
+                                + "\u062A\u0646\u062A\u0647\u064A " + c.expiry);
                 Dataset.Builder ds = new Dataset.Builder();
                 ds.setValue(focusedId, AutofillValue.forText(c.pan), presentation);
                 response.addDataset(ds.build());
                 added++;
-                if (added >= 6) break; // قائمة مقترحات مختصرة
+                if (added >= 6) break; // قائمة اقتراحات مختصرة
             }
             callback.onSuccess(added == 0 ? null : response.build());
         } catch (Throwable t) {
@@ -86,40 +91,37 @@ public class FlossAutofillService extends AutofillService {
     private boolean isFillableCardField(AssistStructure.ViewNode node) {
         // 1) حقل معلّم صراحة كحقل بطاقة (Android autofill hints / HTML autocomplete)
         String[] hints = node.getAutofillHints();
-        if (hints != null) {
-            boolean card = false;
+        if (hints != null && hints.length > 0) {
             for (String h : hints) {
                 if (h == null) continue;
                 String s = h.toLowerCase(Locale.US);
                 if (s.contains("credit") || s.contains("card")
                         || s.contains("cc") || s.equals("pan")) {
-                    card = true;
+                    return true;
                 }
             }
-            if (card) return true;
-            // hints أخرى (كلمة مرور/بريد...) — لسنا معنيّين بها
             return false;
         }
-        // 2) حقول نصية بدون وسوم: نعرض البطاقات أيضًا (يغطي صفحات دفع WebView بلا autocomplete)
+        // 2) حقل نصي بدون وسوم: نعرض البطاقات أيضًا (يغطي صفحات دفع WebView بلا autocomplete)
         int type = node.getInputType();
         if ((type & 0x0f) != InputType.TYPE_CLASS_TEXT) return false; // نص فقط
         if ((type & InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0) return false; // ليس كلمة مرور
         return node.getAutofillType() == View.AUTOFILL_TYPE_TEXT;
     }
 
-    private AssistStructure.ViewNode findNode(AssistStructure.ViewNode root, AutofillId id) {
-        if (root == null) return null;
-        AutofillId nodeId = root.getAutofillId();
-        if (nodeId != null && nodeId.equals(id)) return root;
-        for (int i = 0; i < root.getChildCount(); i++) {
-            AssistStructure.ViewNode found = findNode(root.getChildAt(i), id);
-            if (found != null) return found;
+    private AssistStructure.ViewNode findFocused(AssistStructure.ViewNode node) {
+        if (node == null) return null;
+        AssistStructure.ViewNode found = null;
+        if (node.isFocused()) found = node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AssistStructure.ViewNode f = findFocused(node.getChildAt(i));
+            if (f != null) found = f;
         }
-        return null;
+        return found;
     }
 
     @Override
-    public void onSave(SaveRequest request, SaveCallback callback) {
-        callback.onSuccess();
+    public void onSaveRequest(SaveRequest request, SaveCallback callback) {
+        // لا نطلب حفظ بيانات من التطبيقات الأخرى (المحفظة هي المصدر)
     }
 }

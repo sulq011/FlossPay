@@ -298,13 +298,9 @@ public class MainActivity extends Activity {
                     new ComponentName(this, FlossAutofillService.class).flattenToString(), null));
             startActivity(i);
         } catch (Exception e) {
-            try {
-                startActivity(new Intent(Settings.ACTION_AUTOFILL_SETTINGS));
-            } catch (Exception e2) {
-                Toast.makeText(this,
-                        "من الإعدادات: الإكمال التلقائي ← خدمة الملء ← FlossPay",
-                        Toast.LENGTH_LONG).show();
-            }
+            Toast.makeText(this,
+                    "من الإعدادات: الإكمال التلقائي ← خدمة الملء ← FlossPay",
+                    Toast.LENGTH_LONG).show();
         }
     }
 
