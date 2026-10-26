@@ -165,7 +165,7 @@ public class EmvCardTest {
         });
         diagCard.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
         diagCard.process(unhex("00A4040007A000000228101000"));
-        diagCard.process(unhex("80A800000C830A26800000000000000100000"));
+        diagCard.process(unhex("80A800000C830A26800000" + "000000010000"));
         diagCard.process(unhex("00B2010C00"));
         diagCard.process(unhex("00B2021400"));
         diagCard.process(unhex("80AE8000" + String.format("%02X", cdol1.length() / 2) + cdol1 + "00"));
@@ -223,6 +223,38 @@ public class EmvCardTest {
         c4.process(unhex("80C00000"));
         EmvDiag.Result floss = EmvDiag.analyze(log4);
         check("جلسة FlossPay: موسومة flossReader", floss.flossReader);
+
+        log("=== [16] استخراج المبلغ من أوامر الجهاز (build-10) ===");
+        check("جلسة كاملة: المبلغ المستخرج = 100.00 (10000 وحدات صغرى)", full.amountMinor == 10000);
+        check("جلسة كاملة: لا تضارب مبالغ", !full.amountMismatch);
+        check("جلسة كاملة: التشخيص يذكر المبلغ", full.verdict.contains("المبلغ") && full.verdict.contains("100.00"));
+
+        // تضارب مبالغ: GPO يقول 500.00 وGEN AC يقول 400.00 — النمط غير المنطقي الذي يحصل في الإنتاج
+        final java.util.List<EmvDiag.Entry> logM = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard cM = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        cM.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                logM.add(new EmvDiag.Entry(hex(cmd), hex(resp), logM.size() * 1.5));
+            }
+        });
+        cM.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        cM.process(unhex("00A4040007A000000228101000"));
+        cM.process(unhex("80A800000C830A26800000" + "000000050000")); // GPO: المبلغ 500.00 (50000 وحدة صغرى)
+        cM.process(unhex("00B2010C00"));
+        cM.process(unhex("00B2021400"));
+        String cdol40 = "000000040000" + cdol1.substring(12); // GEN AC: المبلغ 400.00 (40000 وحدة صغرى)
+        cM.process(unhex("80AE8000" + String.format("%02X", cdol40.length() / 2) + cdol40 + "00"));
+        EmvDiag.Result resM = EmvDiag.analyze(logM);
+        check("تضارب مبالغ: مكتشف (500.00 في GPO مقابل 400.00 في GEN AC)", resM.amountMismatch);
+        check("تضارب مبالغ: المبلغ النهائي = 400.00 (آخر GEN AC)", resM.amountMinor == 40000);
+        check("تضارب مبالغ: التشخيص يحذر ويذكر المبلغين",
+                resM.verdict.contains("تضارب") && resM.verdict.contains("500.00") && resM.verdict.contains("400.00"));
+
+        // جلسة مبتورة: المبلغ يُستخرج من GPO وحده
+        check("جلسة مبتورة: مبلغ GPO موجود (1.00 = 100 وحدة صغرى)", trunc.amountMinor == 100);
+
+        // جلسة بلا مبلغ إطلاقًا (PPSE فقط)
+        check("PPSE فقط: لا مبلغ", ppseOnly.amountMinor == -1);
 
         System.out.println("\n=================================");
         System.out.println("PASS: " + passed + "  FAIL: " + failed);

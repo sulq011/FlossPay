@@ -46,6 +46,8 @@ public class EmvDiag {
         public double totalMs;
         public int errors;           // عدد الردود غير 9000
         public boolean flossReader;  // جلسة قارئ FlossPay (عقدنا المغلق)
+        public long amountMinor = -1;   // المبلغ الذي طلبه الجهاز (وحدات صغرى) أو -1 لو لم يصل
+        public boolean amountMismatch;  // الجهاز أرسل مبالغ مختلفة في GPO وGEN AC — مؤشر خلل برمجي
         public List<String> lines = new ArrayList<String>(); // تفصيل APDU بـ APDU
     }
 
@@ -66,6 +68,7 @@ public class EmvDiag {
 
         boolean hasPpse = false, hasAidSelect = false, hasGpo = false, hasReadRec = false,
                 hasGenAc = false, hasExtAuth = false, hasFloss = false;
+        long gpoAmount = -1, genAcAmount = -1;
 
         for (int i = 0; i < entries.size(); i++) {
             Entry e = entries.get(i);
@@ -83,9 +86,17 @@ public class EmvDiag {
                 r.aid = aid;
                 r.kernel = kind.contains("Visa") ? "Kernel 3 (qVSDC)" : "Kernel 2 (M/Chip)";
             }
-            else if (kind.equals("GPO")) hasGpo = true;
+            else if (kind.equals("GPO")) {
+                hasGpo = true;
+                long a = parseAmount("GPO", e.cmd);
+                if (a >= 0) gpoAmount = a;
+            }
             else if (kind.equals("READ RECORD")) hasReadRec = true;
-            else if (kind.startsWith("GENERATE AC")) hasGenAc = true;
+            else if (kind.startsWith("GENERATE AC")) {
+                hasGenAc = true;
+                long a = parseAmount("GENERATE AC", e.cmd);
+                if (a >= 0) genAcAmount = a;
+            }
             else if (kind.equals("EXTERNAL AUTH")) hasExtAuth = true;
 
             if (kind.contains("FlossPay") || e.cmd.startsWith("80C0") || e.cmd.startsWith("80D0")) hasFloss = true;
@@ -135,12 +146,55 @@ public class EmvDiag {
                     + "الجهاز يعالج EMV بالكامل وبلا أي تعثر. جهاز سليم 100% في كل المراحل.";
         }
 
+        // ===== المبلغ الذي طلبه الجهاز (build-10) =====
+        r.amountMinor = genAcAmount >= 0 ? genAcAmount : gpoAmount;
+        r.amountMismatch = gpoAmount >= 0 && genAcAmount >= 0 && gpoAmount != genAcAmount;
+        if (r.amountMinor >= 0) {
+            r.verdict += " — المبلغ الذي طلبه الجهاز: " + formatAmount(r.amountMinor) + " ريال.";
+        }
+        if (r.amountMismatch) {
+            r.verdict += " ⚠️ تضارب مبالغ: الجهاز أرسل " + formatAmount(gpoAmount)
+                    + " ريال في GPO ثم " + formatAmount(genAcAmount)
+                    + " ريال في GENERATE AC — مؤشر خلل برمجي واضح في تطبيق الجهاز.";
+        }
+
         if (r.errors > 0) {
             r.verdict += " — لاحظ " + r.errors + " ردًّا غير 9000 (راجع «←» في التفصيل: ردود 6A86/6D00 "
                     + "من البطاقة تشير لأوامر غير قياسية أرسلها الجهاز = مؤشر خلل برمجي عنده، "
                     + "بينما 6A82/6A83 أثناء البحث عن تطبيقات سلوك طبيعي).";
         }
         return r;
+    }
+
+    /** تنسيق مبلغ (وحدات صغرى → نص بخانتين عشريتين). */
+    static String formatAmount(long minor) {
+        return String.format(java.util.Locale.US, "%.2f", minor / 100.0);
+    }
+
+    /**
+     * يستخرج المبلغ (9F02 — 6 بايت أرقام عشرية) من أمر الجهاز نفسه:
+     * - GPO (80A8): الجهاز يرسل TTQ (4 بايت) ثم المبلغ (6 بايت) — إما داخل قالب 83 أو خامًا حسب PDOL.
+     * - GENERATE AC (80AE): CDOL1 عندنا يبدأ بـ 9F02 مباشرة → المبلغ أول 6 بايت من البيانات.
+     * يعيد -1 لو تعذر الاستخراج.
+     */
+    static long parseAmount(String kind, String cmd) {
+        try {
+            if (kind.equals("GPO")) {
+                if (cmd.length() < 24) return -1;
+                String data = cmd.substring(10);
+                if (data.startsWith("83")) {
+                    if (data.length() < 24) return -1;
+                    return Long.parseLong(data.substring(12, 24));
+                }
+                if (data.length() < 20) return -1;
+                return Long.parseLong(data.substring(8, 20));
+            }
+            if (kind.startsWith("GENERATE AC")) {
+                if (cmd.length() < 22) return -1;
+                return Long.parseLong(cmd.substring(10, 22));
+            }
+        } catch (NumberFormatException ignore) {}
+        return -1;
     }
 
     /** تصنيف أمر APDU إلى اسم بشري. */

@@ -112,6 +112,8 @@ public class DiagActivity extends Activity {
         String stage = s.optString("stage", "-");
         int errors = s.optInt("errors", 0);
         int apduCount = s.optInt("apduCount", 0);
+        long amountMinor = s.optLong("amountMinor", -1);
+        boolean amountMismatch = s.optBoolean("amountMismatch", false);
 
         // لون حسب الحالة
         int bg;
@@ -124,7 +126,10 @@ public class DiagActivity extends Activity {
         TextView head = new TextView(this);
         long ts = s.optLong("ts", 0);
         String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date(ts));
-        head.setText(when + "  |  مرحلة " + stageNum + ": " + stage + "  |  APDU: " + apduCount + (errors > 0 ? "  |  أخطاء SW: " + errors : ""));
+        String amountTxt = amountMinor >= 0 ? String.format(java.util.Locale.US, "%.2f ريال", amountMinor / 100.0) : "بدون مبلغ";
+        head.setText(when + "  |  مرحلة " + stageNum + ": " + stage + "  |  مبلغ: " + amountTxt
+                + (amountMismatch ? "  ⚠️ تضارب مبالغ" : "")
+                + "  |  APDU: " + apduCount + (errors > 0 ? "  |  أخطاء SW: " + errors : ""));
         head.setTextColor(Color.WHITE);
         head.setTypeface(null, Typeface.BOLD);
         head.setTextSize(13);
@@ -193,7 +198,11 @@ public class DiagActivity extends Activity {
         b.setTitle("تفصيل الجلسة");
 
         StringBuilder sb = new StringBuilder();
-        sb.append("المرحلة ").append(s.optInt("stageNum", -1)).append(": ").append(s.optString("stage", "-")).append("\n\n");
+        sb.append("المرحلة ").append(s.optInt("stageNum", -1)).append(": ").append(s.optString("stage", "-")).append("\n");
+        long amt = s.optLong("amountMinor", -1);
+        if (amt >= 0) sb.append("المبلغ المطلوب: ").append(String.format(java.util.Locale.US, "%.2f ريال", amt / 100.0)).append("\n");
+        if (s.optBoolean("amountMismatch")) sb.append("⚠️ تضارب مبالغ بين GPO وGENERATE AC\n");
+        sb.append("\n");
         sb.append(s.optString("verdict", "")).append("\n\n——— APDU ———\n");
         JSONArray apdus = s.optJSONArray("apdus");
         if (apdus != null) {

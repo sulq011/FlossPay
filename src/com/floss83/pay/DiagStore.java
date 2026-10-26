@@ -36,6 +36,8 @@ public class DiagStore {
             session.put("apduCount", res.apduCount);
             session.put("totalMs", res.totalMs);
             session.put("errors", res.errors);
+            session.put("amountMinor", res.amountMinor);
+            session.put("amountMismatch", res.amountMismatch);
             JSONArray arr = new JSONArray();
             for (int i = 0; i < apdus.size(); i++) {
                 EmvDiag.Entry e = apdus.get(i);

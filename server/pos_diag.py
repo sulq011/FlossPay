@@ -143,10 +143,16 @@ class Handler(BaseHTTPRequestHandler):
             label = STAGE_LABELS.get(stage_num, r.get("stage", "-"))
             color = "#0D3B0D" if stage_num >= 5 else ("#7A4A00" if stage_num >= 2 else "#6A1010")
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
+            amt = r.get("amountMinor", -1)
+            amt_html = ""
+            if amt is not None and amt >= 0:
+                amt_html = " — المبلغ: %.2f ريال" % (amt / 100.0)
+                if r.get("amountMismatch"):
+                    amt_html += ' <b style="color:#ffcc00">⚠️ تضارب مبالغ GPO/GEN AC</b>'
             rows.append(
                 '<div style="background:%s;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
-                '<b>%s</b> — مرحلة %s: %s<br><small>%s</small>'
-                "</div>" % (color, ts, stage_num, label, (r.get("verdict", "") or "")[:220])
+                '<b>%s</b> — مرحلة %s: %s%s<br><small>%s</small>'
+                "</div>" % (color, ts, stage_num, label, amt_html, (r.get("verdict", "") or "")[:220])
             )
         html = (
             "<!DOCTYPE html><html dir='rtl' lang='ar'><head><meta charset='utf-8'>"
