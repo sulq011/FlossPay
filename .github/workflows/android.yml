@@ -1,0 +1,44 @@
+name: Build FlossPay APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager "platforms;android-33" "build-tools;34.0.0" > /dev/null
+
+      - name: Build APK
+        run: bash build.sh
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlossPay-apk
+          path: FlossPay.apk
+
+      - name: Release APK
+        uses: softprops/action-gh-release@v1
+        with:
+          files: FlossPay.apk
+          tag_name: build-${{ github.run_number }}
+          name: "FlossPay build ${{ github.run_number }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
