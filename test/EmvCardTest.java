@@ -154,6 +154,76 @@ public class EmvCardTest {
         byte[] cg4 = other.cryptogram(unhex(cdol1), 5, 0x80);
         check("PAN مختلف → مفتاح مختلف → MAC مختلف", !Arrays.equals(cg1, cg4));
 
+        log("=== [15] بوت تشخيص POS (build-9): التسجيل + التحليل ===");
+        // بطاقة جديدة مع مسجّل — نموذج جلسة POS mada كاملة (لمسة على جهاز إنتاجي)
+        EmvCard diagCard = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        final java.util.List<EmvDiag.Entry> log1 = new java.util.ArrayList<EmvDiag.Entry>();
+        diagCard.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                log1.add(new EmvDiag.Entry(hex(cmd), hex(resp), log1.size() * 1.5));
+            }
+        });
+        diagCard.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        diagCard.process(unhex("00A4040007A000000228101000"));
+        diagCard.process(unhex("80A800000C830A26800000000000000100000"));
+        diagCard.process(unhex("00B2010C00"));
+        diagCard.process(unhex("00B2021400"));
+        diagCard.process(unhex("80AE8000" + String.format("%02X", cdol1.length() / 2) + cdol1 + "00"));
+        EmvDiag.Result full = EmvDiag.analyze(log1);
+        check("جلسة كاملة: 6 APDU مسجلة", full.apduCount == 6);
+        check("جلسة كاملة: المرحلة 5 (وصلت GENERATE AC)", full.stageNum == 5);
+        check("جلسة كاملة: aid = mada", full.aid.contains("mada"));
+        check("جلسة كاملة: لا أخطاء SW", full.errors == 0);
+        check("جلسة كاملة: التشخيص يذكر مستويات الجهاز",
+                full.verdict.contains("مسار EMV كامل") && full.verdict.contains("الشبكة"));
+
+        // جلسة مبتورة: توقف بعد قراءة السجلات (النمط الكلاسيكي لخلل برمجي في POS)
+        final java.util.List<EmvDiag.Entry> log2 = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard c2 = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        c2.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                log2.add(new EmvDiag.Entry(hex(cmd), hex(resp), log2.size() * 1.5));
+            }
+        });
+        c2.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        c2.process(unhex("00A4040007A000000228101000"));
+        c2.process(unhex("80A800000C830A26800000000000000100000"));
+        c2.process(unhex("00B2010C00"));
+        EmvDiag.Result trunc = EmvDiag.analyze(log2);
+        check("جلسة مبتورة: المرحلة 4 (توقف قبل GENERATE AC)", trunc.stageNum == 4);
+        check("جلسة مبتورة: التشخيص يقول خللًا برمجيًا", trunc.verdict.contains("خلل"));
+
+        // لمسة موت: لا أوامر إطلاقًا (RF/NFC)
+        EmvDiag.Result none = EmvDiag.analyze(new java.util.ArrayList<EmvDiag.Entry>());
+        check("لا أوامر: المرحلة 0 (RF)", none.stageNum == 0);
+        check("لا أوامر: التشخيص يذكر RF", none.verdict.contains("RF"));
+
+        // PPSE فقط ثم لا اختيار AID (جدول AID غير مهيأ)
+        final java.util.List<EmvDiag.Entry> log3 = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard c3 = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        c3.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                log3.add(new EmvDiag.Entry(hex(cmd), hex(resp), log3.size() * 1.5));
+            }
+        });
+        c3.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        EmvDiag.Result ppseOnly = EmvDiag.analyze(log3);
+        check("PPSE فقط: المرحلة 1 (AID غير مهيأ)", ppseOnly.stageNum == 1);
+        check("PPSE فقط: التشخيص يذكر الإعداد", ppseOnly.verdict.contains("إعداد"));
+
+        // جلسة قارئ FlossPay (العقد المغلق) تُوسم وليست POS
+        final java.util.List<EmvDiag.Entry> log4 = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard c4 = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        c4.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                log4.add(new EmvDiag.Entry(hex(cmd), hex(resp), log4.size() * 1.5));
+            }
+        });
+        c4.process(unhex("00A4040008F794F8300000000100"));
+        c4.process(unhex("80C00000"));
+        EmvDiag.Result floss = EmvDiag.analyze(log4);
+        check("جلسة FlossPay: موسومة flossReader", floss.flossReader);
+
         System.out.println("\n=================================");
         System.out.println("PASS: " + passed + "  FAIL: " + failed);
         System.out.println(failed == 0 ? "✅ ALL TESTS GREEN — المحرك جاهز" : "❌ فشل " + failed + " اختبار");

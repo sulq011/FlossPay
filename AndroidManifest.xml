@@ -23,6 +23,8 @@
 
         <activity android:name=".NfcReaderActivity" android:exported="true" />
 
+        <activity android:name=".DiagActivity" android:exported="false" />
+
         <service
             android:name=".HceService"
             android:exported="true"

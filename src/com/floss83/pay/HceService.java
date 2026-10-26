@@ -4,29 +4,37 @@ import android.nfc.cardemulation.HostApduService;
 import android.os.Bundle;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 /**
- * خدمة محاكاة البطاقة (HCE) — مستويان في خدمة واحدة:
+ * خدمة محاكاة البطاقة (HCE) — ثلاثة مستويات في خدمة واحدة:
  *
  * 1) بطاقة EMV Contactless حقيقية لأي جهاز POS إنتاجي (build-8):
  *    PPSE (2PAY.SYS.DDF01) → FCI دليل AIDs (mada/Visa/MasterCard + 9F2A)
  *    → SELECT AID (PDOL) → GPO (AIP/AFL) → READ RECORD (Track2/PAN/CDOLs)
  *    → GENERATE AC (ARQC بـ 3DES معمل + ATC + CID) → EXTERNAL AUTH.
- *    تُعرض البطاقة المختارة في المحفظة (أو أول بطاقة).
- *    حدّ صادق: موافقة 00 من الشبكات الحقيقية مستحيلة بلا BIN مرخّص —
- *    الرفض سيأتي من المصدر/الشبكة، وهذه هي القيمة التشخيصية (أين تعثر POS؟).
  *
  * 2) عقد Floss83 المغلق (قارئ FlossPay على جهاز آخر):
  *    SELECT F794F83000000001 → 9000
  *    GET_CARD (80 C0) → PAN|expiry|balance|verified
  *    PAY (80 D0 + amount) → دفع فعلي عبر السويتش → المُصدر.
+ *
+ * 3) بوت تشخيص POS (build-9): كل أمر/رد يُسجَّل خلال اللمسة،
+ *    وعند انتهائها (onDeactivated) يُحلَّل السجل بـ EmvDiag ويُحفظ في DiagStore
+ *    ليراه التاجر في «سجل تشخيص POS»: إلى أي مرحلة وصل الجهاز وأين تعثر.
  */
 public class HceService extends HostApduService {
 
     private EmvCard emv;
     private String emvPan;
+
+    // ===== تسجيل تشخيصي للجلسة الحالية =====
+    private List<EmvDiag.Entry> session = new ArrayList<EmvDiag.Entry>();
+    private long sessionStartMs = 0;
+    private boolean listenerAttached = false;
 
     @Override
     public byte[] processCommandApdu(byte[] apdu, Bundle extras) {
@@ -44,11 +52,30 @@ public class HceService extends HostApduService {
             emvPan = pan;
         }
 
+        // بوت التشخيص: علّق المسجّل مرة واحدة على المحرك
+        if (!listenerAttached) {
+            emv.setListener(new EmvCard.Listener() {
+                @Override
+                public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    if (sessionStartMs == 0) sessionStartMs = now;
+                    session.add(new EmvDiag.Entry(hex(cmd), hex(resp), now - sessionStartMs));
+                }
+            });
+            listenerAttached = true;
+        }
+
         // مستوى 2: عقد Floss83 المغلق — فقط بعد SELECT لـ AID الخاص بنا
         if (emv.getSelectedKernel() == -1 && apdu != null && apdu.length >= 5
                 && (apdu[0] & 0xFF) == 0x80) {
             byte[] legacy = legacyCommand(apdu, card, store, cards);
-            if (legacy != null) return legacy;
+            if (legacy != null) {
+                // سجّل أوامر العقد المغلق أيضًا (تظهر في السجل كجلسة FlossPay)
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (sessionStartMs == 0) sessionStartMs = now;
+                session.add(new EmvDiag.Entry(hex(apdu), hex(legacy), now - sessionStartMs));
+                return legacy;
+            }
         }
 
         // مستوى 1: بطاقة EMV كاملة (أو رفضات ISO نظيفة لأي أمر آخر)
@@ -94,6 +121,24 @@ public class HceService extends HostApduService {
     @Override
     public void onDeactivated(int reason) {
         if (emv != null) emv.onDeactivated(); // ينهي الجلسة ويحفظ ATC
+
+        // بوت التشخيص: حلّل الجلسة المنتهية واحفظها (فقط إذا كانت نقاط POS حقيقية أو عقدنا)
+        if (!session.isEmpty()) {
+            List<EmvDiag.Entry> snapshot = session;
+            try {
+                EmvDiag.Result res = EmvDiag.analyze(snapshot);
+                DiagStore.record(this, snapshot, res);
+            } catch (Exception ignore) {}
+            session = new ArrayList<EmvDiag.Entry>();
+            sessionStartMs = 0;
+        }
+    }
+
+    private static String hex(byte[] b) {
+        if (b == null) return "";
+        StringBuilder sb = new StringBuilder(b.length * 2);
+        for (byte x : b) sb.append(String.format("%02X", x));
+        return sb.toString();
     }
 
     private static byte[] concat(byte[]... parts) {

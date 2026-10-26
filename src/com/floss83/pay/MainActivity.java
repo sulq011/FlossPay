@@ -148,6 +148,16 @@ public class MainActivity extends Activity {
         });
         box.addView(hce);
 
+        Button diag = new Button(this);
+        diag.setText("🩺 سجل تشخيص POS (البوت)");
+        diag.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, DiagActivity.class));
+            }
+        });
+        box.addView(diag);
+
         Button autofill = new Button(this);
         autofill.setText("💳 تفعيل ملء البطاقات التلقائي (صفحات الدفع)");
         autofill.setOnClickListener(new View.OnClickListener() {

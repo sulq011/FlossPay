@@ -36,6 +36,11 @@ public class EmvCard {
     public static final String AID_MC     = "A0000000041010"; // kernel 2 (M/Chip)
     public static final String AID_FLOSS83 = "F794F83000000001"; // عقدنا المغلق (وضع قارئ FlossPay)
 
+    // تسجيل تشخيصي: كل أمر ورد يمر من هنا (بوت تشخيص POS)
+    public interface Listener { void onExchange(byte[] cmd, byte[] resp, long micros); }
+    private Listener listener;
+    public void setListener(Listener l) { listener = l; }
+
     // حالة الجلسة
     private int selectedKernel = 0;   // 0=لا شيء، 2=M/Chip(mada/mc)، 3=qVSDC(visa)، -1=floss83
     private int atc = 1;              // عداد المعاملات (يبقى في الذاكرة طوال تشغيل الخدمة)
@@ -66,8 +71,17 @@ public class EmvCard {
     /** نهاية الجلسة (ابتعد عن القارئ) — يبقى ATC محفوظًا كبطاقة حقيقية. */
     public void onDeactivated() { selectedKernel = 0; issuerAuthed = false; }
 
-    // ============ نقطة الدخول الرئيسية ============
+    // ============ نقطة الدخول الرئيسية (مع التسجيل التشخيصي) ============
     public byte[] process(byte[] apdu) {
+        long t0 = System.nanoTime();
+        byte[] resp = processInner(apdu);
+        if (listener != null) {
+            try { listener.onExchange(apdu, resp, (System.nanoTime() - t0) / 1000); } catch (Exception ignore) {}
+        }
+        return resp;
+    }
+
+    private byte[] processInner(byte[] apdu) {
         if (apdu == null || apdu.length < 4) return SW_INS_NOT_SUPPORTED;
         int cla = apdu[0] & 0xFF;
         int ins = apdu[1] & 0xFF;
