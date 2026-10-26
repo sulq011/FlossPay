@@ -27,7 +27,7 @@ public class CardStore {
     };
 
     /** إصدار البطاقات المزروعة — زيادته تضيف الجديد للمثبت كافة التثبيتات. */
-    private static final int SEED_VERSION = 2;
+    private static final int SEED_VERSION = 3;
 
     private final SharedPreferences prefs;
 
@@ -54,8 +54,16 @@ public class CardStore {
             List<Card> fresh = seed();
             boolean changed = false;
             for (Card s : fresh) {
-                if (byPan(cards, s.pan) == null) {
+                Card existing = byPan(cards, s.pan);
+                if (existing == null) {
                     cards.add(s);
+                    changed = true;
+                } else if (isEmpty(existing.addrStreet) || isEmpty(existing.addrCity)
+                        || isEmpty(existing.addrPostcode) || isEmpty(existing.addrCountry)) {
+                    if (isEmpty(existing.addrStreet)) existing.addrStreet = s.addrStreet;
+                    if (isEmpty(existing.addrCity)) existing.addrCity = s.addrCity;
+                    if (isEmpty(existing.addrPostcode)) existing.addrPostcode = s.addrPostcode;
+                    if (isEmpty(existing.addrCountry)) existing.addrCountry = s.addrCountry;
                     changed = true;
                 }
             }
@@ -81,14 +89,22 @@ public class CardStore {
 
     private List<Card> seed() {
         List<Card> cards = new ArrayList<Card>();
-        cards.add(new Card("4000001234567899", "Sad Am", "12/29", "123", 400000, true));
-        cards.add(new Card("4111111111111111", "VISA Test", "11/27", "123", 150000, true));
-        cards.add(new Card("5555555555554444", "MC Test", "09/28", "123", 50000, true));
-        cards.add(new Card("378282246310005", "Amex Test", "05/27", "1234", 25000, true));
-        cards.add(new Card("4444947123456715", "SAD AM", "12/28", "123", 1500000, true));
-        cards.add(new Card("4651542045869133", "ABDULLAH ALHARBI", "04/29", "456", 2500000, true));
-        cards.add(new Card("4659617319028467", "MOHAMMED ALQAHTANI", "08/27", "789", 900000, true));
-        cards.add(new Card("4638695174290386", "FAHAD ALOTAIBI", "01/29", "321", 750000, true));
+        cards.add(new Card("4000001234567899", "Sad Am", "12/29", "123", 400000, true,
+                "P.O. Box 12345", "Riyadh", "11564", "Saudi Arabia"));
+        cards.add(new Card("4111111111111111", "VISA Test", "11/27", "123", 150000, true,
+                "P.O. Box 12345", "Riyadh", "11564", "Saudi Arabia"));
+        cards.add(new Card("5555555555554444", "MC Test", "09/28", "123", 50000, true,
+                "P.O. Box 12345", "Riyadh", "11564", "Saudi Arabia"));
+        cards.add(new Card("378282246310005", "Amex Test", "05/27", "1234", 25000, true,
+                "P.O. Box 12345", "Riyadh", "11564", "Saudi Arabia"));
+        cards.add(new Card("4444947123456715", "SAD AM", "12/28", "123", 1500000, true,
+                "P.O. Box 12345", "Riyadh", "11564", "Saudi Arabia"));
+        cards.add(new Card("4651542045869133", "ABDULLAH ALHARBI", "04/29", "456", 2500000, true,
+                "P.O. Box 22334", "Jeddah", "21577", "Saudi Arabia"));
+        cards.add(new Card("4659617319028467", "MOHAMMED ALQAHTANI", "08/27", "789", 900000, true,
+                "P.O. Box 34567", "Riyadh", "11623", "Saudi Arabia"));
+        cards.add(new Card("4638695174290386", "FAHAD ALOTAIBI", "01/29", "321", 750000, true,
+                "P.O. Box 44556", "Riyadh", "11534", "Saudi Arabia"));
         return cards;
     }
 
@@ -102,6 +118,10 @@ public class CardStore {
     /** بعد عملية ناجحة (00/01) تصبح البطاقة "موثّقة لدى المُصدر". */
     public void markKnown(String pan) {
         prefs.edit().putBoolean("known_" + (pan == null ? "" : pan), true).apply();
+    }
+
+    private static boolean isEmpty(String s) {
+        return s == null || s.isEmpty();
     }
 
     public Card byPan(List<Card> cards, String pan) {
