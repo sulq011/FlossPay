@@ -26,3 +26,14 @@ bash build.sh
 - البطاقات والأرصدة هنا **محاكاة معمل** — ليست أموالًا حقيقية.
 - البطاقات المادية لا تُفصح عن PAN كامل عبر NFC (تصميم EMV) — القراءة تعرض ما تكشفه البطاقة فقط.
 - مفتاح التوقيع في المستودع لغرض المعمل فقط — للتوزيع الحقيقي انتقل إلى GitHub Secrets + مفتاح خاص.
+
+## v1.1 — Tap & Pay + Autofill + Saudi BIN cards (26 Oct 2026)
+
+- **Fix: app now appears in "Tap & pay" payment apps list** — AID group moved to the `payment` category (`aid-group android:category="payment"`), proper `host-apdu-service` XML root.
+- **New: FlossAutofillService (Android Autofill)** — FlossPay registers as the device autofill service; tapping a card field in any payment app/page shows the wallet cards as system suggestions and fills the PAN. Enable from the in-app button (Android 8+).
+- **New: Saudi BIN lab cards** (real bank BINs + generated Luhn check digits — synthetic lab numbers, not real cards):
+  - 4444947123456715 — Visa debit, Al Rajhi (BIN 444494)
+  - 4651542045869133 — Visa credit platinum, SNB (BIN 465154)
+  - 4659617319028467 — Visa credit signature, Riyad Bank (BIN 465961)
+  - 4638695174290386 — Visa debit, Banque Saudi Fransi (BIN 463869)
+- Existing installs automatically receive the new seed cards (seed v2 merge).

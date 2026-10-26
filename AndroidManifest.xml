@@ -33,5 +33,14 @@
                 android:name="android.nfc.cardemulation.host_apdu_service"
                 android:resource="@xml/aidlist" />
         </service>
+
+        <service
+            android:name=".FlossAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

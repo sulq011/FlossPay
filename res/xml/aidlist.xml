@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<host-card-emulation xmlns:android="http://schemas.android.com/apk/res/android"
-    android:description="@string/hce_service_desc">
-    <aid-filter android:name="F794F83000000001" />
-</host-card-emulation>
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/hce_service_desc"
+    android:requireDeviceUnlock="false">
+    <aid-group android:category="payment"
+        android:description="@string/payment_aids_desc">
+        <aid-filter android:name="F794F83000000001" />
+    </aid-group>
+</host-apdu-service>

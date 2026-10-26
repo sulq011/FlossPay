@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">FlossPay</string>
     <string name="hce_service_desc">FlossPay NFC Card</string>
+    <string name="payment_aids_desc">بطاقات الدفع FlossPay</string>
 </resources>

@@ -18,8 +18,16 @@ public class CardStore {
             "4000001234567899", // بطاقة المعمل (رصيد 4000.00)
             "4111111111111111", // VISA تجريبية
             "5555555555554444", // Mastercard تجريبية
-            "378282246310005"   // Amex تجريبية
+            "378282246310005",  // Amex تجريبية
+            // بطاقات سعودية مصنفعة (BIN حقيقية لبنوك سعودي + Luhn مولّد — أرقام معملية)
+            "4444947123456715", // VISA ديبيت — مصرف الراجحي (BIN 444494)
+            "4651542045869133", // VISA كريديت بلاتينيوم — الأهلي SNB (BIN 465154)
+            "4659617319028467", // VISA كريديت سيجنشر — مصرف الرياض (BIN 465961)
+            "4638695174290386"  // VISA ديبيت — بنك الرياض الفرنسي BSF (BIN 463869)
     };
+
+    /** إصدار البطاقات المزروعة — زيادته تضيف الجديد للمثبت كافة التثبيتات. */
+    private static final int SEED_VERSION = 2;
 
     private final SharedPreferences prefs;
 
@@ -42,7 +50,18 @@ public class CardStore {
         if (cards.isEmpty()) {
             cards = seed();
             save(cards);
+        } else if (prefs.getInt("seed_version", 0) < SEED_VERSION) {
+            List<Card> fresh = seed();
+            boolean changed = false;
+            for (Card s : fresh) {
+                if (byPan(cards, s.pan) == null) {
+                    cards.add(s);
+                    changed = true;
+                }
+            }
+            if (changed) save(cards);
         }
+        prefs.edit().putInt("seed_version", SEED_VERSION).apply();
         for (Card c : cards) {
             c.verified = isKnown(c.pan);
         }
@@ -66,6 +85,10 @@ public class CardStore {
         cards.add(new Card("4111111111111111", "VISA Test", "11/27", "123", 150000, true));
         cards.add(new Card("5555555555554444", "MC Test", "09/28", "123", 50000, true));
         cards.add(new Card("378282246310005", "Amex Test", "05/27", "1234", 25000, true));
+        cards.add(new Card("4444947123456715", "SAD AM", "12/28", "123", 1500000, true));
+        cards.add(new Card("4651542045869133", "ABDULLAH ALHARBI", "04/29", "456", 2500000, true));
+        cards.add(new Card("4659617319028467", "MOHAMMED ALQAHTANI", "08/27", "789", 900000, true));
+        cards.add(new Card("4638695174290386", "FAHAD ALOTAIBI", "01/29", "321", 750000, true));
         return cards;
     }
 

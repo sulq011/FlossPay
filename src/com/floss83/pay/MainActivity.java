@@ -2,8 +2,11 @@ package com.floss83.pay;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -145,6 +148,16 @@ public class MainActivity extends Activity {
         });
         box.addView(hce);
 
+        Button autofill = new Button(this);
+        autofill.setText("💳 تفعيل ملء البطاقات التلقائي (صفحات الدفع)");
+        autofill.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                enableAutofill();
+            }
+        });
+        box.addView(autofill);
+
         logView = new TextView(this);
         logView.setTextSize(13);
         logView.setPadding(0, dp(16), 0, 0);
@@ -271,6 +284,28 @@ public class MainActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    /** تفعيل خدمة الملء التلقائي — تظهر البطاقات كاقتراحات عند الضغط على حقل البطاقة في أي تطبيق. */
+    private void enableAutofill() {
+        if (Build.VERSION.SDK_INT < 26) {
+            Toast.makeText(this, "الملء التلقائي يحتاج أندرويد 8+", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            Intent i = new Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE);
+            i.setData(Uri.fromParts("android.component",
+                    new ComponentName(this, FlossAutofillService.class).flattenToString(), null));
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_AUTOFILL_SETTINGS));
+            } catch (Exception e2) {
+                Toast.makeText(this,
+                        "من الإعدادات: الإكمال التلقائي ← خدمة الملء ← FlossPay",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void addCardDialog() {
