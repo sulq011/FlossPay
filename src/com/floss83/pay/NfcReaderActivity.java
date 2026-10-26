@@ -76,7 +76,7 @@ public class NfcReaderActivity extends Activity implements NfcAdapter.ReaderCall
             log("\n🔗 اتصال NFC قائم…");
 
             // 1) بطاقة FlossPay HCE (هاتف آخر)
-            byte[] selResp = iso.transceive(select(HceService.AID));
+            byte[] selResp = iso.transceive(select(EmvCard.AID_FLOSS83));
             if (isOk(selResp)) {
                 byte[] getCard = {(byte) 0x80, (byte) 0xC0, 0x00, 0x00, 0x00};
                 byte[] resp = iso.transceive(getCard);

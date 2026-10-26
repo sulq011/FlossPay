@@ -8,86 +8,92 @@ import java.util.Arrays;
 import java.util.Locale;
 
 /**
- * خدمة محاكاة البطاقة (HCE): تحوّل الهاتف إلى بطاقة NFC.
- * - جهاز آخر يشغّل وضع القراءة في FlossPay يقرأها بالكامل.
- * - أمر الدفع (0xD0) يمرّ فعليًا عبر السويتش ثم المُصدر — قرار حقيقي.
+ * خدمة محاكاة البطاقة (HCE) — مستويان في خدمة واحدة:
  *
- * عقد APDU المغلق (AID: F794F83000000001):
- * - SELECT (00 A4 04 00) + AID            -> 9000
- * - GET_CARD (80 C0 00 00 00)             -> PAN|expiry|balance|verified + 9000
- * - PAY (80 D0 00 00 LC + amount digits) -> responseCode+authCode + 9000
+ * 1) بطاقة EMV Contactless حقيقية لأي جهاز POS إنتاجي (build-8):
+ *    PPSE (2PAY.SYS.DDF01) → FCI دليل AIDs (mada/Visa/MasterCard + 9F2A)
+ *    → SELECT AID (PDOL) → GPO (AIP/AFL) → READ RECORD (Track2/PAN/CDOLs)
+ *    → GENERATE AC (ARQC بـ 3DES معمل + ATC + CID) → EXTERNAL AUTH.
+ *    تُعرض البطاقة المختارة في المحفظة (أو أول بطاقة).
+ *    حدّ صادق: موافقة 00 من الشبكات الحقيقية مستحيلة بلا BIN مرخّص —
+ *    الرفض سيأتي من المصدر/الشبكة، وهذه هي القيمة التشخيصية (أين تعثر POS؟).
+ *
+ * 2) عقد Floss83 المغلق (قارئ FlossPay على جهاز آخر):
+ *    SELECT F794F83000000001 → 9000
+ *    GET_CARD (80 C0) → PAN|expiry|balance|verified
+ *    PAY (80 D0 + amount) → دفع فعلي عبر السويتش → المُصدر.
  */
 public class HceService extends HostApduService {
 
-    public static final String AID = "F794F83000000001";
-
-    private static final byte[] SW_OK = {(byte) 0x90, 0x00};
-    private static final byte[] SW_NOT_FOUND = {(byte) 0x6A, (byte) 0x82};
-    private static final byte[] SW_INS_NOT_SUPPORTED = {(byte) 0x6D, 0x00};
+    private EmvCard emv;
+    private String emvPan;
 
     @Override
     public byte[] processCommandApdu(byte[] apdu, Bundle extras) {
-        if (apdu == null || apdu.length < 4) return SW_INS_NOT_SUPPORTED;
+        CardStore store = new CardStore(this);
+        java.util.List<Card> cards = store.load();
+        Card card = store.byPan(cards, store.getSelectedPan());
+        if (card == null && !cards.isEmpty()) card = cards.get(0);
+        String pan = card != null ? card.pan : "4000001234567899";
+        String expiry = (card != null && card.expiry != null && !card.expiry.isEmpty()) ? card.expiry : "12/26";
+        String holder = (card != null && card.holder != null && !card.holder.isEmpty()) ? card.holder : "SAD AM";
 
-        int cla = apdu[0] & 0xFF;
+        // محرك EMV واحد يبقى حيًّا طوال تشغيل الخدمة (ATC يتراكم كبطاقة حقيقية)
+        if (emv == null || !pan.equals(emvPan)) {
+            emv = new EmvCard(pan, expiry, holder);
+            emvPan = pan;
+        }
+
+        // مستوى 2: عقد Floss83 المغلق — فقط بعد SELECT لـ AID الخاص بنا
+        if (emv.getSelectedKernel() == -1 && apdu != null && apdu.length >= 5
+                && (apdu[0] & 0xFF) == 0x80) {
+            byte[] legacy = legacyCommand(apdu, card, store, cards);
+            if (legacy != null) return legacy;
+        }
+
+        // مستوى 1: بطاقة EMV كاملة (أو رفضات ISO نظيفة لأي أمر آخر)
+        return emv.process(apdu);
+    }
+
+    /** عقد FlossPay المغلق: GET_CARD / PAY — نفس سلوك الإصدارات السابقة تمامًا. */
+    private byte[] legacyCommand(byte[] apdu, Card card, CardStore store, java.util.List<Card> cards) {
         int ins = apdu[1] & 0xFF;
+        if (card == null) return EmvCard.SW_NOT_FOUND;
 
-        if (cla == 0x00 && ins == 0xA4) { // SELECT
-            if (apdu.length >= 5) {
-                int lc = apdu[4] & 0xFF;
-                if (apdu.length >= 5 + lc) {
-                    String aid = Util.hex(Arrays.copyOfRange(apdu, 5, 5 + lc));
-                    if (AID.equals(aid)) {
-                        return SW_OK;
-                    }
-                }
-            }
-            return SW_NOT_FOUND;
+        if (ins == 0xC0) { // GET_CARD
+            String data = card.pan + "|" + card.expiry + "|" + card.balanceMinor
+                    + "|" + (card.verified ? "1" : "0");
+            return concat(Util.ascii(data), EmvCard.SW_OK);
         }
 
-        if (cla == 0x80) {
-            CardStore store = new CardStore(this);
-            java.util.List<Card> cards = store.load();
-            String selected = store.getSelectedPan();
-            Card card = store.byPan(cards, selected);
-
-            if (ins == 0xC0) { // GET_CARD
-                if (card == null) return SW_NOT_FOUND;
-                String data = card.pan + "|" + card.expiry + "|" + card.balanceMinor
-                        + "|" + (card.verified ? "1" : "0");
-                return concat(Util.ascii(data), SW_OK);
-            }
-
-            if (ins == 0xD0) { // PAY — مبلغ بالوحدات الصغرى في بيانات الأمر
-                if (card == null) return SW_NOT_FOUND;
-                int lc = apdu.length > 4 ? apdu[4] & 0xFF : 0;
-                String amtStr = Util.asciiStr(Arrays.copyOfRange(apdu, 5, Math.min(5 + lc, apdu.length))).trim();
-                try {
-                    long amount = Long.parseLong(amtStr);
-                    String hostPort = store.getHost();
-                    String[] hp = hostPort.split(":");
-                    String stan = String.format(Locale.US, "%06d",
-                            (System.currentTimeMillis() / 1000) % 1000000);
-                    String msg = Iso8583.build0200(card.pan, card.cvv, amount, stan);
-                    Iso8583.PayResult r = Iso8583.send(hp[0], Integer.parseInt(hp[1].trim()), msg);
-                    if (r.approved) {
-                        store.adjustBalance(cards, card.pan, -amount);
-                    }
-                    String rc = (r.responseCode == null || r.responseCode.isEmpty()) ? "91" : r.responseCode;
-                    String ac = (r.authCode == null || r.authCode.isEmpty()) ? "000000" : r.authCode;
-                    return concat(Util.ascii(rc + ac), SW_OK);
-                } catch (Exception e) {
-                    return concat(Util.ascii("91000000"), SW_OK);
+        if (ins == 0xD0) { // PAY — مبلغ بالوحدات الصغرى في بيانات الأمر
+            int lc = apdu.length > 4 ? apdu[4] & 0xFF : 0;
+            String amtStr = Util.asciiStr(Arrays.copyOfRange(apdu, 5,
+                    Math.min(5 + lc, apdu.length))).trim();
+            try {
+                long amount = Long.parseLong(amtStr);
+                String hostPort = store.getHost();
+                String[] hp = hostPort.split(":");
+                String stan = String.format(Locale.US, "%06d",
+                        (System.currentTimeMillis() / 1000) % 1000000);
+                String msg = Iso8583.build0200(card.pan, card.cvv, amount, stan);
+                Iso8583.PayResult r = Iso8583.send(hp[0], Integer.parseInt(hp[1].trim()), msg);
+                if (r.approved) {
+                    store.adjustBalance(cards, card.pan, -amount);
                 }
+                String rc = (r.responseCode == null || r.responseCode.isEmpty()) ? "91" : r.responseCode;
+                String ac = (r.authCode == null || r.authCode.isEmpty()) ? "000000" : r.authCode;
+                return concat(Util.ascii(rc + ac), EmvCard.SW_OK);
+            } catch (Exception e) {
+                return concat(Util.ascii("91000000"), EmvCard.SW_OK);
             }
         }
-
-        return SW_INS_NOT_SUPPORTED;
+        return null; // أمر آخر في وضع Floss83 → مرر للمحرك (سيرفضه 6D00)
     }
 
     @Override
     public void onDeactivated(int reason) {
-        // البطاقة ابتعدت عن القارئ
+        if (emv != null) emv.onDeactivated(); // ينهي الجلسة ويحفظ ATC
     }
 
     private static byte[] concat(byte[]... parts) {
