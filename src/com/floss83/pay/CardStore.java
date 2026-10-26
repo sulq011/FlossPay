@@ -13,6 +13,9 @@ import java.util.List;
 /** تخزين البطاقات والإعدادات محليًا (JSON في SharedPreferences). */
 public class CardStore {
 
+    /** build-7: عنوان سويتش المعمل الخادمي الثابت (sull.world — TCP 5000). */
+    public static final String DEFAULT_HOST = "sull.world:5000";
+
     /** بطاقات معروفة لدى مُصدر المعمل (issuer_mock) — تُعد "موثّقة". */
     private static final String[] KNOWN_PANS = {
             "4000001234567899", // بطاقة المعمل (رصيد 4000.00)
@@ -33,6 +36,12 @@ public class CardStore {
 
     public CardStore(Context ctx) {
         prefs = ctx.getSharedPreferences("flosspay", Context.MODE_PRIVATE);
+        // build-7: العنوان الافتراضي صار خادم المعمل (sull.world:5000) —
+        // والتثبيتات القديمة التي كانت على العنوان المحلي القديم تُنقل إليه تلقائيًا.
+        String h = prefs.getString("host", null);
+        if (h == null || "127.0.0.1:5000".equals(h)) {
+            prefs.edit().putString("host", DEFAULT_HOST).apply();
+        }
     }
 
     public List<Card> load() {
@@ -149,7 +158,7 @@ public class CardStore {
     }
 
     public String getHost() {
-        return prefs.getString("host", "127.0.0.1:5000");
+        return prefs.getString("host", DEFAULT_HOST);
     }
 
     public void setHost(String host) {

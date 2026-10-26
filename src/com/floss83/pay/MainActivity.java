@@ -167,7 +167,7 @@ public class MainActivity extends Activity {
         renderCards();
         log("✅ المحفظة جاهزة. البطاقة المختارة للدفع وللـ NFC: "
                 + Util.mask(store.getSelectedPan() == null ? "" : store.getSelectedPan()));
-        log("ℹ️ شغّل السويتش (TCP 5000) على نفس الجهاز (127.0.0.1) أو على الخادم.");
+        log("ℹ️ العنوان الافتراضي: سويتش الخادم sull.world:5000 (متطلب منفذ 5000 مفتوح).");
     }
 
     private void renderCards() {
