@@ -23,7 +23,11 @@ jobs:
 
       - name: Install Android SDK components
         run: |
-          yes | sdkmanager "platforms;android-33" "build-tools;34.0.0" > /dev/null
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$ANDROID_HOME/cmdline-tools/bin/sdkmanager"
+          echo "using sdkmanager: $SDKM"
+          yes | "$SDKM" "platforms;android-33" "build-tools;34.0.0" > /dev/null
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
       - name: Build APK
         run: bash build.sh
