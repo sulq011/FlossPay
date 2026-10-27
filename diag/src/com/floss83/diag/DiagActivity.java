@@ -41,12 +41,18 @@ import java.util.Locale;
  *    لتوحيد المدخلات عند فحص صفحة الدفع ومقارنة ردود البوابة.
  * 4) النتائج: ملف محفوظ (results.jsonl) يعرض كل القراءات والأخطاء، مع مشاركة الملف
  *    ورفعه لخادم التشخيص.
+ * 5) Lithic (build-16): إصدار بطاقات من مُصدر مرخص حقيقي عبر جسر lithic_proxy.py —
+ *    بطاقة VIRTUAL كاملة (PAN/CVV/انتهاء) + محاكاة شراء بنتيجة حقيقية من المُصدر
+ *    (APPROVED / DECLINED + أكواد مُعرّبة) + سجل آخر المعاملات، ويُسجَّل الكل
+ *    في ملف النتائج. المفتاح لا يمر عبر التطبيق — يبقى في بيئة الخادم فقط.
  */
 public class DiagActivity extends Activity {
 
     private static final String PREFS = "flossdiag";
     private static final String HOST_KEY = "diag_host";
     private static final String DEFAULT_HOST = "sull.world:8096";
+    private static final String LITHIC_HOST_KEY = "lithic_host";
+    private static final String DEFAULT_LITHIC_HOST = "sull.world:8097";
 
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 
@@ -56,6 +62,10 @@ public class DiagActivity extends Activity {
     private Spinner gwNetwork, gwOutcome, cardGateway, posNetwork, billCompany;
     private LinearLayout resultsBox, cardsBox;
     private EditText billAccount, billAmount;
+
+    // ===== Lithic (build-16) =====
+    private EditText lithicHost, lithicLimit, lithicPan, lithicAmount, lithicDescriptor;
+    private LinearLayout lithicBox;
 
     private static final String[] NETWORKS = {"Visa", "MasterCard", "Amex", "mada", "أخرى"};
 
@@ -108,6 +118,7 @@ public class DiagActivity extends Activity {
         buildGatewaySection(box);
         buildTestCardsSection(box);
         buildBillPaySection(box);
+        buildLithicSection(box);
         buildResultsSection(box);
     }
 
@@ -487,9 +498,319 @@ public class DiagActivity extends Activity {
         box.addView(note);
     }
 
+    // ===== Lithic: مُصدر مرخص حقيقي (build-16) =====
+
+    private void buildLithicSection(LinearLayout box) {
+        TextView h = new TextView(this);
+        h.setText("🏦 5) Lithic — بطاقة من مُصدر حقيقي (Sandbox)");
+        h.setTextSize(16);
+        h.setTypeface(null, Typeface.BOLD);
+        h.setPadding(0, dp(12), 0, dp(4));
+        box.addView(h);
+
+        TextView hint = new TextView(this);
+        hint.setText("إصدار بطاقة VIRTUAL من مُصدر مرخص فعليًا (Lithic) عبر الجسر على خادمك — القبول/الرفض بمنطق مُصدر بنكي حقيقي (حدود صرف، ASA، قواعد تفويض). "
+                + "⚠️ صادقة: هذه بطاقات بيئة الاختبار فقط — لن تُقبل على POS أو بوابة حقيقية؛ قيمتها هنا أننا نرصد سلوك المُصدر الحقيقي ونعرّبه ونسجّله في النتائج. "
+                + "مفتاح API لا يمر عبر التطبيق إطلاقًا — يبقى في بيئة الخادم (LITHIC_API_KEY).");
+        hint.setTextSize(12);
+        hint.setPadding(dp(4), 0, dp(4), dp(6));
+        box.addView(hint);
+
+        lithicHost = new EditText(this);
+        lithicHost.setText(getLithicHost());
+        lithicHost.setTextSize(13);
+        lithicHost.setHint("خادم الجسر (host:port)");
+        box.addView(lithicHost);
+
+        lithicLimit = new EditText(this);
+        lithicLimit.setHint("حد صرف البطاقة بالسنت دولار (اختياري — مثال: 10000 = 100$)");
+        lithicLimit.setTextSize(14);
+        lithicLimit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.addView(lithicLimit);
+
+        Button issue = new Button(this);
+        issue.setText("💳 إصدار بطاقة افتراضية من Lithic");
+        issue.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                issueLithicCard();
+            }
+        });
+        box.addView(issue);
+
+        lithicPan = new EditText(this);
+        lithicPan.setHint("PAN البطاقة (يُملأ تلقائيًا بعد الإصدار)");
+        lithicPan.setTextSize(14);
+        lithicPan.setTypeface(Typeface.MONOSPACE);
+        box.addView(lithicPan);
+
+        lithicAmount = new EditText(this);
+        lithicAmount.setHint("المبلغ بالدولار (مثال: 38.31)");
+        lithicAmount.setTextSize(14);
+        lithicAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        box.addView(lithicAmount);
+
+        lithicDescriptor = new EditText(this);
+        lithicDescriptor.setText("FLOSS DIAG SHOP");
+        lithicDescriptor.setTextSize(14);
+        box.addView(lithicDescriptor);
+
+        Button sim = new Button(this);
+        sim.setText("🧪 محاكاة شراء على البطاقة");
+        sim.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                simulateLithicAuth();
+            }
+        });
+        box.addView(sim);
+
+        Button listTx = new Button(this);
+        listTx.setText("📜 آخر 10 معاملات Lithic");
+        listTx.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loadLithicTransactions();
+            }
+        });
+        box.addView(listTx);
+
+        lithicBox = new LinearLayout(this);
+        lithicBox.setOrientation(LinearLayout.VERTICAL);
+        box.addView(lithicBox);
+    }
+
+    private void issueLithicCard() {
+        final String host = lithicHost.getText().toString().trim();
+        if (host.isEmpty()) {
+            Toast.makeText(this, "حدد خادم الجسر أولًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        setLithicHost(host);
+        final long limit = parseAmount(lithicLimit.getText().toString());
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String body = "{}";
+                try {
+                    JSONObject req = new JSONObject();
+                    if (limit > 0) req.put("spend_limit_minor", limit);
+                    body = req.toString();
+                    final String resp = LithicClient.post(host, "/api/issue_card", body);
+                    final JSONObject card = new JSONObject(resp);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() { showLithicCard(card); }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(DiagActivity.this,
+                                    "فشل الإصدار: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void showLithicCard(JSONObject card) {
+        try {
+            String pan = card.optString("pan", "-");
+            lithicPan.setText(pan);
+            copyText(pan, "نُسخ PAN البطاقة الصادرة");
+
+            JSONObject row = new JSONObject();
+            row.put("type", "lithic_card");
+            row.put("ts", System.currentTimeMillis());
+            row.put("pan", pan);
+            row.put("last4", card.optString("last_four", "-"));
+            row.put("exp", card.optString("exp_month", "-") + "/" + card.optString("exp_year", "-"));
+            row.put("state", card.optString("state", "-"));
+            if (card.has("spend_limit")) row.put("spend_limit", card.optLong("spend_limit"));
+            DiagFileStore.append(this, row.toString());
+            renderResults();
+
+            if (lithicBox == null) return;
+            lithicBox.removeAllViews();
+            lithicBox.addView(makeLithicCardView(
+                    "💳 بطاقة صادرة من Lithic: " + pan
+                            + " | CVV " + card.optString("cvv", "-")
+                            + " | انتهاء " + card.optString("exp_month", "-") + "/" + card.optString("exp_year", "-")
+                            + " | الحالة " + card.optString("state", "-") + " (" + LithicCodes.stateLabelAr(card.optString("state")) + ")",
+                    0xFF0D3B0D));
+        } catch (Exception ignore) {}
+    }
+
+    private void simulateLithicAuth() {
+        final String host = lithicHost.getText().toString().trim();
+        final String pan = lithicPan.getText().toString().trim();
+        final long minor = LithicCodes.parseUsdMinor(lithicAmount.getText().toString());
+        final String descriptor = lithicDescriptor.getText().toString().trim();
+        if (host.isEmpty()) { Toast.makeText(this, "حدد خادم الجسر أولًا", Toast.LENGTH_SHORT).show(); return; }
+        if (pan.isEmpty()) { Toast.makeText(this, "أصدر بطاقة أولًا (أو أدخل PAN)", Toast.LENGTH_SHORT).show(); return; }
+        if (minor <= 0) { Toast.makeText(this, "أدخل مبلغًا صحيحًا بالدولار", Toast.LENGTH_SHORT).show(); return; }
+        setLithicHost(host);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JSONObject req = new JSONObject();
+                    req.put("pan", pan);
+                    req.put("amount_minor", minor);
+                    req.put("descriptor", descriptor.isEmpty() ? "FLOSS DIAG SHOP" : descriptor);
+                    final String resp = LithicClient.post(host, "/api/simulate_auth", req.toString());
+                    final JSONObject tx = new JSONObject(resp);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() { showLithicAuthResult(tx); }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(DiagActivity.this,
+                                    "فشلت المحاكاة: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void showLithicAuthResult(JSONObject tx) {
+        boolean pending = tx.optBoolean("pending", false);
+        if (pending) {
+            if (lithicBox != null) {
+                lithicBox.addView(makeLithicCardView(
+                        "⏳ أُرسلت المحاكاة ولم تظهر النتيجة بعد — جرّب «آخر المعاملات» بعد لحظات",
+                        0xFF7A4A00));
+            }
+            return;
+        }
+        String result = tx.optString("result", "-");
+        boolean ok = LithicCodes.isApproved(result);
+        StringBuilder codes = new StringBuilder();
+        org.json.JSONArray arr = tx.optJSONArray("detailed_results");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) codes.append(i == 0 ? "" : "، ").append(arr.optString(i));
+        }
+        String arExplain = LithicCodes.explainFirstAr(codes.length() == 0
+                ? java.util.Collections.<String>emptyList()
+                : java.util.Arrays.asList(codes.toString().split("، ")));
+
+        try {
+            JSONObject row = new JSONObject();
+            row.put("type", "lithic_auth");
+            row.put("ts", System.currentTimeMillis());
+            row.put("pan", lithicPan.getText().toString().trim());
+            row.put("descriptor", tx.optString("descriptor", "-"));
+            row.put("amountMinor", tx.optLong("amount_minor", -1));
+            row.put("result", result);
+            if (codes.length() > 0) row.put("codes", codes.toString());
+            DiagFileStore.append(this, row.toString());
+            renderResults();
+        } catch (Exception ignore) {}
+
+        if (lithicBox == null) return;
+        lithicBox.addView(makeLithicCardView(
+                (ok ? "✔ " : "✘ ") + "محاكاة: " + tx.optString("descriptor", "-")
+                        + " | " + LithicCodes.fmtUsd(tx.optLong("amount_minor", -1))
+                        + " | النتيجة " + result
+                        + (codes.length() > 0 ? " | الأكواد: " + codes : "")
+                        + "\n" + arExplain,
+                ok ? 0xFF0D3B0D : 0xFF6A1010));
+    }
+
+    private void loadLithicTransactions() {
+        final String host = lithicHost.getText().toString().trim();
+        if (host.isEmpty()) { Toast.makeText(this, "حدد خادم الجسر أولًا", Toast.LENGTH_SHORT).show(); return; }
+        setLithicHost(host);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final String resp = LithicClient.get(host, "/api/transactions?limit=10");
+                    final JSONObject obj = new JSONObject(resp);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() { renderLithicTransactions(obj); }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(DiagActivity.this,
+                                    "تعذر جلب المعاملات: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void renderLithicTransactions(JSONObject obj) {
+        if (lithicBox == null) return;
+        lithicBox.removeAllViews();
+        org.json.JSONArray arr = obj.optJSONArray("data");
+        if (arr == null || arr.length() == 0) {
+            lithicBox.addView(makeLithicCardView("لا معاملات بعد على حساب Lithic.", 0xFF333333));
+            return;
+        }
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject t = arr.optJSONObject(i);
+            if (t == null) continue;
+            String result = t.optString("result", "-");
+            boolean ok = LithicCodes.isApproved(result);
+            StringBuilder codes = new StringBuilder();
+            org.json.JSONArray cr = t.optJSONArray("detailed_results");
+            if (cr != null) {
+                for (int j = 0; j < cr.length(); j++) codes.append(j == 0 ? "" : "، ").append(cr.optString(j));
+            }
+            lithicBox.addView(makeLithicCardView(
+                    (ok ? "✔ " : "✘ ") + t.optString("descriptor", "-")
+                            + " | " + LithicCodes.fmtUsd(t.optLong("amount_minor", -1))
+                            + " | " + result
+                            + (codes.length() > 0 ? " | " + codes : "")
+                            + " | " + t.optString("created", "-")
+                            + "\n" + (codes.length() > 0
+                                ? LithicCodes.explainAr(codes.toString().split("، ")[0])
+                                : LithicCodes.explainAr(result)),
+                    ok ? 0xFF0D3B0D : 0xFF6A1010));
+        }
+    }
+
+    private View makeLithicCardView(String text, int bgColor) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        card.setLayoutParams(lp);
+        card.setBackgroundColor(bgColor);
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFFFFFFFF);
+        tv.setTextSize(12);
+        card.addView(tv);
+        return card;
+    }
+
+    private String getLithicHost() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getString(LITHIC_HOST_KEY, DEFAULT_LITHIC_HOST);
+    }
+
+    private void setLithicHost(String host) {
+        SharedPreferences.Editor e = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+        e.putString(LITHIC_HOST_KEY, host);
+        e.apply();
+    }
+
     private void buildResultsSection(LinearLayout box) {
         TextView h = new TextView(this);
-        h.setText("📄 5) النتائج — ملف محفوظ (results.jsonl)");
+        h.setText("📄 6) النتائج — ملف محفوظ (results.jsonl)");
         h.setTextSize(16);
         h.setTypeface(null, Typeface.BOLD);
         h.setPadding(0, dp(12), 0, dp(4));
@@ -636,6 +957,18 @@ public class DiagActivity extends Activity {
                     + " | بطاقة •••• " + o.optString("cardLast4", "-")
                     + (approved ? " | ✔ " : " | ✘ ")
                     + (o.optString("code", "").isEmpty() ? "" : "كود " + o.optString("code"));
+        } else if ("lithic_card".equals(o.optString("type"))) {
+            bg = 0xFF14406B;
+            head = when + " | 🏦 Lithic: بطاقة صادرة " + o.optString("pan", "-")
+                    + " | انتهاء " + o.optString("exp", "-")
+                    + " | الحالة " + o.optString("state", "-");
+        } else if ("lithic_auth".equals(o.optString("type"))) {
+            boolean ok = LithicCodes.isApproved(o.optString("result", ""));
+            bg = ok ? 0xFF0D3B0D : 0xFF6A1010;
+            head = when + " | 🏦 Lithic: محاكاة " + o.optString("descriptor", "-")
+                    + " | " + LithicCodes.fmtUsd(o.optLong("amountMinor", -1))
+                    + " | " + o.optString("result", "-")
+                    + (o.optString("codes", "").isEmpty() ? "" : " | " + o.optString("codes"));
         } else {
             int stageNum = o.optInt("stageNum", -1);
             boolean match = o.optBoolean("amountMatch", false) && o.optLong("amountMinor", -1) >= 0;

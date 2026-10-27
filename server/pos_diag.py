@@ -139,6 +139,27 @@ class Handler(BaseHTTPRequestHandler):
         recs = load_records()
         rows = []
         for r in reversed(recs[-100:]):
+            if r.get("type") == "lithic_card":
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
+                rows.append(
+                    '<div style="background:#14406B;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
+                    '<b>%s</b> — 🏦 Lithic: بطاقة صادرة <b>%s</b> | انتهاء %s | الحالة %s'
+                    "</div>" % (ts, r.get("pan", "-"), r.get("exp", "-"), r.get("state", "-"))
+                )
+                continue
+            if r.get("type") == "lithic_auth":
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
+                ok = r.get("result") == "APPROVED"
+                amt = r.get("amountMinor", -1)
+                amt_html = "%.2f$" % (amt / 100.0) if amt is not None and amt >= 0 else "-"
+                codes = (" | أكواد: %s" % r["codes"]) if r.get("codes") else ""
+                rows.append(
+                    '<div style="background:%s;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
+                    '<b>%s</b> — 🏦 Lithic: محاكاة %s | %s | <b>%s</b>%s'
+                    "</div>" % ("#0D3B0D" if ok else "#6A1010", ts, r.get("descriptor", "-"),
+                                amt_html, r.get("result", "-"), codes)
+                )
+                continue
             if r.get("type") == "sadad":
                 ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
                 approved = r.get("approved")
