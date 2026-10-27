@@ -57,8 +57,8 @@ build_app() {
     --manifest "$MANIFEST"
     --min-sdk-version 24
     --target-sdk-version 33
-    --version-code 14
-    --version-name 1.9
+    --version-code 15
+    --version-name 2.0
     --java "$B/gen")
 
   if [ -n "$RESDIR" ] && [ -d "$RESDIR" ]; then

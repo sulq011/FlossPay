@@ -27,6 +27,8 @@
 
         <activity android:name=".TestActivity" android:exported="true" android:label="اختبار POS" />
 
+        <activity android:name=".BillPayActivity" android:exported="true" android:label="سداد الفواتير" />
+
         <service
             android:name=".HceService"
             android:exported="true"

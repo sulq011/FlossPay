@@ -139,6 +139,19 @@ class Handler(BaseHTTPRequestHandler):
         recs = load_records()
         rows = []
         for r in reversed(recs[-100:]):
+            if r.get("type") == "sadad":
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
+                approved = r.get("approved")
+                color = "#0D3B0D" if approved else "#7A4A00"
+                rows.append(
+                    '<div style="background:%s;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
+                    '<b>%s</b> — ⚡ سداد فاتورة: %s | حساب %s | %.2f ريال | بطاقة •••• %s | %s%s'
+                    "</div>" % (color, ts, r.get("company", "-"), r.get("account", "-"),
+                                (r.get("amountMinor", 0) or 0) / 100.0, r.get("cardLast4", "-"),
+                                "✔ " if approved else "✘ ",
+                                ("كود " + r["code"]) if r.get("code") else "")
+                )
+                continue
             if r.get("type") == "gateway":
                 ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r.get("received_at", r.get("ts", 0) / 1000)))
                 amt = r.get("amountMinor", -1)

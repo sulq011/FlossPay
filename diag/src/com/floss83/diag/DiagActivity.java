@@ -53,8 +53,9 @@ public class DiagActivity extends Activity {
     private long confirmedAmountMinor = -1;
     private TextView confirmLabel;
     private EditText posAmount, gwStore, gwAmount, gwCode, gwNotes, hostEdit;
-    private Spinner gwNetwork, gwOutcome, cardGateway, posNetwork;
+    private Spinner gwNetwork, gwOutcome, cardGateway, posNetwork, billCompany;
     private LinearLayout resultsBox, cardsBox;
+    private EditText billAccount, billAmount;
 
     private static final String[] NETWORKS = {"Visa", "MasterCard", "Amex", "mada", "أخرى"};
 
@@ -65,6 +66,15 @@ public class DiagActivity extends Activity {
     private static final String[] PROBE_AIDS = {
             "", "A0000002281010", "A0000000031010", "A0000000041010", "A0000000251010",
             "A0000000651010", "A0000000151010", "A0000001523010", "A0000005241010"
+    };
+
+    // ===== سداد الفواتير (build-15): الشركة + رقم حساب الفاتورة + قيمة الفاتورة =====
+    private static final String[] BILL_COMPANIES = {
+            "الشركة السعودية للكهرباء", "شركة المياه الوطنية"
+    };
+    private static final String[] BILL_URLS = {
+            "https://www.se.com.sa/ar-SA/GuestViewBill",
+            "https://www.nwc.com.sa/ar-SA/Pages/default.aspx"
     };
 
     private static final String[] OUTCOMES = {
@@ -97,6 +107,7 @@ public class DiagActivity extends Activity {
         buildPosSection(box);
         buildGatewaySection(box);
         buildTestCardsSection(box);
+        buildBillPaySection(box);
         buildResultsSection(box);
     }
 
@@ -388,9 +399,97 @@ public class DiagActivity extends Activity {
         Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
     }
 
+    private void buildBillPaySection(LinearLayout box) {
+        TextView h = new TextView(this);
+        h.setText("⚡ 4) سداد الفواتير (شركة الكهرباء)");
+        h.setTextSize(16);
+        h.setTypeface(null, Typeface.BOLD);
+        h.setPadding(0, dp(12), 0, dp(4));
+        box.addView(h);
+
+        TextView hint = new TextView(this);
+        hint.setText("اختر الشركة ← أدخل رقم حساب الفاتورة ← افتح موقع الشركة الرسمي لرؤية قيمة فاتورتك الحقيقية ← أدخل القيمة هنا ← سداد عبر بطاقة المحفظة.");
+        hint.setTextSize(12);
+        hint.setPadding(dp(4), 0, dp(4), dp(6));
+        box.addView(hint);
+
+        billCompany = new Spinner(this);
+        ArrayAdapter<String> ba = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, BILL_COMPANIES);
+        ba.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        billCompany.setAdapter(ba);
+        box.addView(billCompany);
+
+        billAccount = new EditText(this);
+        billAccount.setHint("رقم حساب الفاتورة (مثال: 4321000123)");
+        billAccount.setTextSize(14);
+        billAccount.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.addView(billAccount);
+
+        Button openOfficial = new Button(this);
+        openOfficial.setText("🌐 عرض قيمة الفاتورة على موقع الشركة الرسمي");
+        openOfficial.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW,
+                            android.net.Uri.parse(BILL_URLS[billCompany.getSelectedItemPosition()])));
+                } catch (Exception e) {
+                    Toast.makeText(DiagActivity.this, "لا يوجد متصفح", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        box.addView(openOfficial);
+
+        billAmount = new EditText(this);
+        billAmount.setHint("قيمة الفاتورة بالريال (من الموقع الرسمي — مثال: 210.55)");
+        billAmount.setTextSize(14);
+        billAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        box.addView(billAmount);
+
+        Button pay = new Button(this);
+        pay.setText("💳 سداد عبر المحفظة (بطاقات + سويتش المعمل)");
+        pay.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String account = billAccount.getText().toString().trim();
+                long minor = parseAmount(billAmount.getText().toString());
+                if (account.isEmpty() || minor <= 0) {
+                    Toast.makeText(DiagActivity.this,
+                            "أدخل رقم حساب الفاتورة وقيمتها (من الموقع الرسمي)", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String company = BILL_COMPANIES[billCompany.getSelectedItemPosition()];
+                try {
+                    Intent i = new Intent();
+                    i.setClassName("com.floss83.pay", "com.floss83.pay.BillPayActivity");
+                    i.putExtra("company", company);
+                    i.putExtra("account", account);
+                    i.putExtra("amountMinor", minor);
+                    startActivity(i);
+                    Toast.makeText(DiagActivity.this,
+                            "اختر بطاقة المحفظة وأكمل السداد — النتيجة تعود هنا تلقائيًا",
+                            Toast.LENGTH_LONG).show();
+                } catch (android.content.ActivityNotFoundException e) {
+                    Toast.makeText(DiagActivity.this,
+                            "ثبّت تطبيق المحفظة FlossPay أولًا (نفس الإصدار build-15)", Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+        box.addView(pay);
+
+        TextView note = new TextView(this);
+        note.setText("⚠️ الحد الصادق: لا يوجد API عام لاستعلام فواتير الشركات — القيمة الحقيقية تُقرأ من الموقع الرسمي. "
+                + "السداد عبر المحفظة محاكاة معملية على سويتش Flossx83 (لا يخصم من فاتورتك الحقيقية). "
+                + "السداد الفعلي لفاتورتك: من موقع الشركة أو تطبيق البنك (سداد). النتيجة تُسجّل في ملف النتائج أدناه.");
+        note.setTextSize(11);
+        note.setPadding(dp(4), dp(2), dp(4), dp(4));
+        box.addView(note);
+    }
+
     private void buildResultsSection(LinearLayout box) {
         TextView h = new TextView(this);
-        h.setText("📄 4) النتائج — ملف محفوظ (results.jsonl)");
+        h.setText("📄 5) النتائج — ملف محفوظ (results.jsonl)");
         h.setTextSize(16);
         h.setTypeface(null, Typeface.BOLD);
         h.setPadding(0, dp(12), 0, dp(4));
@@ -528,6 +627,15 @@ public class DiagActivity extends Activity {
                     + " | " + fmt(o.optLong("amountMinor", -1)) + " ريال"
                     + " | " + outcome
                     + (o.optString("code", "").isEmpty() ? "" : " (كود " + o.optString("code") + ")");
+        } else if ("sadad".equals(o.optString("type"))) {
+            boolean approved = o.optBoolean("approved", false);
+            bg = approved ? 0xFF0D3B0D : 0xFF7A4A00;
+            head = when + " | ⚡ سداد فاتورة: " + o.optString("company", "-")
+                    + " | حساب " + o.optString("account", "-")
+                    + " | " + fmt(o.optLong("amountMinor", -1)) + " ريال"
+                    + " | بطاقة •••• " + o.optString("cardLast4", "-")
+                    + (approved ? " | ✔ " : " | ✘ ")
+                    + (o.optString("code", "").isEmpty() ? "" : "كود " + o.optString("code"));
         } else {
             int stageNum = o.optInt("stageNum", -1);
             boolean match = o.optBoolean("amountMatch", false) && o.optLong("amountMinor", -1) >= 0;
