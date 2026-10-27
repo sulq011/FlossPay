@@ -1,0 +1,15 @@
+{
+  "_تعليمات": [
+    "انسخ هذا الملف إلى bin_lookup_config.json ثم املأ القيم.",
+    "المصدر: developer.mastercard.com ← مشروعك في BIN Lookup ← Credentials:",
+    "  - base_url: رابط Sandbox أو Production من صفحة المشروع",
+    "  - consumer_key: Consumer Key من لوحة المشروع",
+    "  - p12_path: مسار شهادة sandbox.p12 التي نزّلتها عند إنشاء المشروع",
+    "  - p12_pass: كلمة مرور الـ keystore التي حددتها عند تنزيل الشهادة",
+    "⚠️ لا ترفع bin_lookup_config.json ولا ملفات p12 إلى مستودع عام."
+  ],
+  "base_url": "https://sandbox.api.mastercard.com",
+  "consumer_key": "ضع_Consumer_Key_هنا",
+  "p12_path": "certs/sandbox.p12",
+  "p12_pass": "ضع_كلمة_مرور_keystore_هنا"
+}
