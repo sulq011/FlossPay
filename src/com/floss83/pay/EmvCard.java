@@ -34,6 +34,12 @@ public class EmvCard {
     public static final String AID_MADA   = "A0000002281010"; // kernel 2 (M/Chip)
     public static final String AID_VISA   = "A0000000031010"; // kernel 3 (qVSDC)
     public static final String AID_MC     = "A0000000041010"; // kernel 2 (M/Chip)
+    // بروفايلات الشبكات الإضافية (build-13) — فحص دعم الشبكات من ردود الجهاز:
+    public static final String AID_AMEX    = "A0000000251010"; // American Express (AEK)
+    public static final String AID_JCB     = "A0000000651010"; // JCB J/Smart
+    public static final String AID_DISCOVER= "A0000000151010"; // Discover
+    public static final String AID_DINERS  = "A0000001523010"; // Diners Club Intl
+    public static final String AID_RUPAY   = "A0000005241010"; // RuPay (NPCI)
     public static final String AID_FLOSS83 = "F794F83000000001"; // عقدنا المغلق (وضع قارئ FlossPay)
 
     // تسجيل تشخيصي: كل أمر ورد يمر من هنا (بوت تشخيص POS)
@@ -43,8 +49,40 @@ public class EmvCard {
 
     // حالة الجلسة
     private int selectedKernel = 0;   // 0=لا شيء، 2=M/Chip(mada/mc)، 3=qVSDC(visa)، -1=floss83
+    private String selectedLabel = "CARD"; // اسم التطبيق المختار (يظهر في السجل 50)
     private int atc = 1;              // عداد المعاملات (يبقى في الذاكرة طوال تشغيل الخدمة)
     private boolean issuerAuthed = false;
+
+    // وضع فحص الشبكة الواحدة (build-13): null = كل الشبكات (السلوك الافتراضي)؛
+    // غير null = البطاقة تعلن AID شبكة واحدة فقط في PPSE وترفض SELECT لغيرها (6A82)
+    // → ردود الجهاز تكشف إن كان جدول AID لديه يتضمن هذه الشبكة.
+    private String profileAid = null;
+
+    public void setNetworkProfile(String aidOrNull) { profileAid = aidOrNull; }
+    public String getNetworkProfile() { return profileAid; }
+
+    /** اسم الشبكة من AID (null لو ليس AID شبكة معروف لدينا). */
+    public static String networkLabel(String aid) {
+        if (aid == null) return null;
+        if (AID_MADA.equals(aid)) return "mada";
+        if (AID_VISA.equals(aid)) return "Visa";
+        if (AID_MC.equals(aid)) return "MasterCard";
+        if (AID_AMEX.equals(aid)) return "Amex";
+        if (AID_JCB.equals(aid)) return "JCB";
+        if (AID_DISCOVER.equals(aid)) return "Discover";
+        if (AID_DINERS.equals(aid)) return "Diners";
+        if (AID_RUPAY.equals(aid)) return "RuPay";
+        return null;
+    }
+
+    /** معرف النواة (9F2A) لكل شبكة — أفضل جهد معملي (مصدر معلن غير متاح للجميع). */
+    static String kernelIdOf(String aid) {
+        if (AID_VISA.equals(aid)) return "03";
+        if (AID_AMEX.equals(aid)) return "04";
+        if (AID_JCB.equals(aid)) return "01";
+        if (AID_DISCOVER.equals(aid) || AID_DINERS.equals(aid)) return "06";
+        return "02"; // M/Chip: mada / MasterCard / RuPay
+    }
 
     // معطيات البطاقة المعروضة
     private final String pan;      // أرقام فقط
@@ -69,7 +107,7 @@ public class EmvCard {
     public int getAtc() { return atc; }
 
     /** نهاية الجلسة (ابتعد عن القارئ) — يبقى ATC محفوظًا كبطاقة حقيقية. */
-    public void onDeactivated() { selectedKernel = 0; issuerAuthed = false; }
+    public void onDeactivated() { selectedKernel = 0; selectedLabel = "CARD"; issuerAuthed = false; }
 
     // ============ نقطة الدخول الرئيسية (مع التسجيل التشخيصي) ============
     public byte[] process(byte[] apdu) {
@@ -115,19 +153,29 @@ public class EmvCard {
         if (PPSE.equals(name) || PSE.equals(name)) {
             return concat(ppseFci(name), SW_OK);
         }
-        if (AID_MADA.equals(name)) { selectedKernel = 2; return concat(selectFci(AID_MADA, "mada"), SW_OK); }
-        if (AID_VISA.equals(name)) { selectedKernel = 3; return concat(selectFci(AID_VISA, "VISA"), SW_OK); }
-        if (AID_MC.equals(name))   { selectedKernel = 2; return concat(selectFci(AID_MC, "MasterCard"), SW_OK); }
-        if (AID_FLOSS83.equals(name)) { selectedKernel = -1; return concat(selectFci(AID_FLOSS83, "FlossPay"), SW_OK); }
+        if (AID_FLOSS83.equals(name)) { selectedKernel = -1; selectedLabel = "FlossPay"; return concat(selectFci(AID_FLOSS83, "FlossPay"), SW_OK); }
+        // AID شبكة معروفة (أو مرفوض في وضع فحص شبكة واحدة)
+        String label = networkLabel(name);
+        if (label != null) {
+            if (profileAid != null && !profileAid.equals(name)) return SW_NOT_FOUND; // ليست الشبكة المعلنة
+            selectedKernel = AID_VISA.equals(name) ? 3 : 2;
+            selectedLabel = label;
+            return concat(selectFci(name, label), SW_OK);
+        }
         return SW_NOT_FOUND;
     }
 
-    /** FCI دليل PPSE: 6F { 84 DF name, A5 { BF0C { 61{4F,50,87,9F2A} ×3 } } } */
+    /** FCI دليل PPSE: 6F { 84 DF name, A5 { BF0C { 61{4F,50,87,9F2A} } } }
+     *  وضع فحص الشبكة (build-13): مدخل واحد فقط — بطاقة أحادية الشبكة. */
     private byte[] ppseFci(String dfName) {
         ByteArrayOutputStream entries = new ByteArrayOutputStream();
-        write(entries, entry(AID_MADA, "mada", 1, "02"));
-        write(entries, entry(AID_VISA, "VISA", 2, "03"));
-        write(entries, entry(AID_MC, "MasterCard", 3, "02"));
+        if (profileAid != null) {
+            write(entries, entry(profileAid, networkLabel(profileAid), 1, kernelIdOf(profileAid)));
+        } else {
+            write(entries, entry(AID_MADA, "mada", 1, "02"));
+            write(entries, entry(AID_VISA, "VISA", 2, "03"));
+            write(entries, entry(AID_MC, "MasterCard", 3, "02"));
+        }
         byte[] bf0c = tlv("BF0C", entries.toByteArray());
         byte[] a5 = tlv("A5", bf0c);
         ByteArrayOutputStream fci = new ByteArrayOutputStream();
@@ -204,7 +252,7 @@ public class EmvCard {
         write(r, tlv("9F42", unhex(appCurrency)));   // عملة التطبيق (SAR)
         write(r, tlv("9F44", new byte[]{0x02}));     // أس العملة
         write(r, tlv("9F07", unhex("F8F8")));        // صلاحيات الاستخدام: الكل
-        write(r, tlv("50", ascii(selectedKernel == 3 ? "VISA" : (selectedKernel == 2 ? "mada/MC" : "CARD"))));
+        write(r, tlv("50", ascii(selectedLabel)));     // اسم التطبيق المختار
         write(r, tlv("5F20", ascii(holder)));         // اسم حامل البطاقة (يظهر على شاشة POS أحيانًا)
         write(r, tlv("5F2D", ascii("ar")));          // اللغة المفضلة
         return r.toByteArray();

@@ -164,10 +164,16 @@ class Handler(BaseHTTPRequestHandler):
                     amt_html += " (اختبار: %.2f%s)" % (exp / 100.0, " ✔" if r.get("amountMatch") else " ⚠️ مختلف")
                 if r.get("amountMismatch"):
                     amt_html += ' <b style="color:#ffcc00">⚠️ تضارب مبالغ GPO/GEN AC</b>'
+            prof = r.get("networkProfile", "")
+            prof_html = ""
+            if prof and prof != "-":
+                sup = r.get("networkSupported")
+                prof_html = " | 🛰 شبكة %s: %s" % (
+                    prof, "✔ مدعومة" if sup else ("✘ غير مدعومة" if sup is not None else "غير محسومة"))
             rows.append(
                 '<div style="background:%s;color:#fff;padding:12px;margin:10px 0;border-radius:8px">'
-                '<b>%s</b> — مرحلة %s: %s%s<br><small>%s</small>'
-                "</div>" % (color, ts, stage_num, label, amt_html, (r.get("verdict", "") or "")[:220])
+                '<b>%s</b> — مرحلة %s: %s%s%s<br><small>%s</small>'
+                "</div>" % (color, ts, stage_num, label, amt_html, prof_html, (r.get("verdict", "") or "")[:220])
             )
         html = (
             "<!DOCTYPE html><html dir='rtl' lang='ar'><head><meta charset='utf-8'>"

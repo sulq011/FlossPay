@@ -52,6 +52,11 @@ public class HceService extends HostApduService {
             emvPan = pan;
         }
 
+        // وضع فحص الشبكة الواحدة (build-13): من الاختبار المعلّق من التطبيق الأساسي
+        org.json.JSONObject pendingProfile = DiagStore.loadPendingTest(this);
+        String profAid = pendingProfile != null ? pendingProfile.optString("networkProfile", "") : "";
+        emv.setNetworkProfile(profAid.isEmpty() ? null : profAid);
+
         // بوت التشخيص: علّق المسجّل مرة واحدة على المحرك
         if (!listenerAttached) {
             emv.setListener(new EmvCard.Listener() {
@@ -127,8 +132,10 @@ public class HceService extends HostApduService {
         if (!session.isEmpty()) {
             List<EmvDiag.Entry> snapshot = session;
             try {
-                EmvDiag.Result res = EmvDiag.analyze(snapshot);
                 org.json.JSONObject pending = DiagStore.loadPendingTest(this);
+                String profAid0 = pending != null ? pending.optString("networkProfile", "") : "";
+                String profLabel = profAid0.isEmpty() ? null : EmvCard.networkLabel(profAid0);
+                EmvDiag.Result res = EmvDiag.analyze(snapshot, profLabel);
                 long expected = -1;
                 String testId = "";
                 if (pending != null) {
@@ -144,6 +151,8 @@ public class HceService extends HostApduService {
                     sessionJson.put("expectedAmount", expected);
                     sessionJson.put("amountMatch", res.amountMinor >= 0 && res.amountMinor == expected);
                     sessionJson.put("testId", testId);
+                    sessionJson.put("networkProfile", res.networkProfile);
+                    if (res.networkSupported != null) sessionJson.put("networkSupported", res.networkSupported.booleanValue());
                     DiagStore.clearPendingTest(this);
                     // تسليم النتيجة للتطبيق الأساسي (إن كان مثبتًا)
                     try {

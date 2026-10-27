@@ -28,11 +28,12 @@ public class DiagStore {
 
     // ===== اختبار معلّق (من التطبيق الأساسي FlossDiag) =====
 
-    public static void savePendingTest(android.content.Context ctx, String testId, long amountMinor) {
+    public static void savePendingTest(android.content.Context ctx, String testId, long amountMinor, String networkProfile) {
         try {
             JSONObject o = new JSONObject();
             o.put("testId", testId);
             o.put("amountMinor", amountMinor);
+            o.put("networkProfile", networkProfile == null ? "" : networkProfile);
             o.put("ts", System.currentTimeMillis());
             prefs(ctx).edit().putString(PENDING_KEY, o.toString()).apply();
         } catch (Exception ignore) {}

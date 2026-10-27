@@ -53,10 +53,20 @@ public class DiagActivity extends Activity {
     private long confirmedAmountMinor = -1;
     private TextView confirmLabel;
     private EditText posAmount, gwStore, gwAmount, gwCode, gwNotes, hostEdit;
-    private Spinner gwNetwork, gwOutcome, cardGateway;
+    private Spinner gwNetwork, gwOutcome, cardGateway, posNetwork;
     private LinearLayout resultsBox, cardsBox;
 
     private static final String[] NETWORKS = {"Visa", "MasterCard", "Amex", "mada", "أخرى"};
+
+    // ===== فحص دعم الشبكات (build-13): AID كل شبكة (نفس ثوابت المحفظة) =====
+    private static final String[] PROBE_NETWORKS = {
+            "كل الشبكات (وضع عادي)", "mada", "Visa", "MasterCard", "Amex", "JCB", "Discover", "Diners", "RuPay"
+    };
+    private static final String[] PROBE_AIDS = {
+            "", "A0000002281010", "A0000000031010", "A0000000041010", "A0000000251010",
+            "A0000000651010", "A0000000151010", "A0000001523010", "A0000005241010"
+    };
+
     private static final String[] OUTCOMES = {
             "موافقة (عملية ناجحة)", "رفض بكود", "فشل 3DS / OTP", "خطأ تقني", "انتهت مهلة"
     };
@@ -104,6 +114,22 @@ public class DiagActivity extends Activity {
         posAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         box.addView(posAmount);
 
+        // فحص دعم الشبكات (build-13): بطاقة أحادية الشبكة تكشف ردود الجهاز
+        posNetwork = new Spinner(this);
+        ArrayAdapter<String> pn = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, PROBE_NETWORKS);
+        pn.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        posNetwork.setAdapter(pn);
+        box.addView(posNetwork);
+
+        TextView probeHint = new TextView(this);
+        probeHint.setText("🛰 فحص دعم الشبكات: اختر شبكة واحدة (بدل «كل الشبكات») فتعلن المحفظة AID تلك الشبكة وحدها في PPSE. "
+                + "لو أكمل الجهاز بعد الدليل (اختر التطبيق وتابع GPO) فهو يدعمها ✔؛ لو قرأ الدليل وتوقف فهو لا يدعمها ✘. "
+                + "كرر الاختبار شبكة شبكة على الجهاز نفسه لترسم خريطة دعمه الكاملة (Visa/MC/mada/Amex…).");
+        probeHint.setTextSize(12);
+        probeHint.setPadding(dp(4), dp(2), dp(4), dp(4));
+        box.addView(probeHint);
+
         Button confirm = new Button(this);
         confirm.setText("✓ تأكيد المبلغ");
         confirm.setOnClickListener(new View.OnClickListener() {
@@ -143,13 +169,17 @@ public class DiagActivity extends Activity {
                     i.setClassName("com.floss83.pay", "com.floss83.pay.TestActivity");
                     i.putExtra("amountMinor", confirmedAmountMinor);
                     i.putExtra("testId", testId);
+                    i.putExtra("networkProfile", PROBE_AIDS[posNetwork.getSelectedItemPosition()]);
                     startActivity(i);
+                    String net = PROBE_NETWORKS[posNetwork.getSelectedItemPosition()];
                     Toast.makeText(DiagActivity.this,
-                            "المحفظة جاهزة — أدخل المبلغ نفسه في الجهاز وقرّب الهاتف. النتيجة تعود هنا تلقائيًا",
+                            net.equals("كل الشبكات (وضع عادي)")
+                                    ? "المحفظة جاهزة — أدخل المبلغ نفسه في الجهاز وقرّب الهاتف. النتيجة تعود هنا تلقائيًا"
+                                    : "وضع فحص شبكة " + net + " — اختر بطاقة من نفس الشبكة في المحفظة ثم قرّب الهاتف",
                             Toast.LENGTH_LONG).show();
                 } catch (ActivityNotFoundException e) {
                     Toast.makeText(DiagActivity.this,
-                            "ثبّت تطبيق المحفظة FlossPay أولًا (نفس الإصدار build-12)", Toast.LENGTH_LONG).show();
+                            "ثبّت تطبيق المحفظة FlossPay أولًا (نفس الإصدار build-14)", Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -501,13 +531,21 @@ public class DiagActivity extends Activity {
         } else {
             int stageNum = o.optInt("stageNum", -1);
             boolean match = o.optBoolean("amountMatch", false) && o.optLong("amountMinor", -1) >= 0;
+            String prof = o.optString("networkProfile", "");
+            boolean hasProf = !prof.isEmpty() && !"-".equals(prof) && !"null".equals(prof);
             bg = match ? 0xFF0D3B0D : (o.optLong("amountMinor", -1) >= 0 ? 0xFF6A1010 : 0xFF333333);
+            if (hasProf && o.has("networkSupported")) {
+                bg = o.optBoolean("networkSupported", false) ? 0xFF0D3B0D : 0xFF6A1010;
+            }
             head = when + " | 🛒 POS"
                     + " | مبلغ الاختبار: " + fmt(o.optLong("expectedAmount", -1))
                     + " | أرسل الجهاز: " + (o.optLong("amountMinor", -1) >= 0 ? fmt(o.optLong("amountMinor", -1)) : "لا شيء")
                     + (match ? " ✔" : (o.optLong("amountMinor", -1) >= 0 ? " ⚠️ مختلف" : ""))
                     + " | مرحلة " + stageNum + ": " + o.optString("stage", "-")
-                    + " | أخطاء SW: " + o.optInt("errors", 0);
+                    + " | أخطاء SW: " + o.optInt("errors", 0)
+                    + (hasProf ? " | 🛰 " + prof + (o.has("networkSupported")
+                        ? (o.optBoolean("networkSupported", false) ? " ✔ مدعومة" : " ✘ غير مدعومة")
+                        : "") : "");
         }
         card.setBackgroundColor(bg);
 

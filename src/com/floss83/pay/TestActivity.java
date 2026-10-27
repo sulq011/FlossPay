@@ -26,6 +26,7 @@ public class TestActivity extends Activity {
 
         long amountMinor = getIntent().getLongExtra("amountMinor", -1);
         String testId = getIntent().getStringExtra("testId");
+        String profileAid = getIntent().getStringExtra("networkProfile");
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
@@ -50,7 +51,7 @@ public class TestActivity extends Activity {
         }
 
         // حفظ الاختبار المعلّق — HceService ستقرأه عند لمسة الجهاز
-        DiagStore.savePendingTest(this, testId, amountMinor);
+        DiagStore.savePendingTest(this, testId, amountMinor, profileAid);
 
         TextView amount = new TextView(this);
         amount.setText("المبلغ المؤكد للاختبار:\n" + String.format(java.util.Locale.US, "%.2f ريال", amountMinor / 100.0));
@@ -59,6 +60,18 @@ public class TestActivity extends Activity {
         amount.setGravity(Gravity.CENTER);
         amount.setPadding(0, dp(12), 0, dp(12));
         box.addView(amount);
+
+        String profLabel = (profileAid == null || profileAid.isEmpty()) ? null : EmvCard.networkLabel(profileAid);
+        if (profLabel != null) {
+            TextView prof = new TextView(this);
+            prof.setText("🛰 وضع فحص الشبكة: " + profLabel + " فقط\nالبطاقة تعلن AID شبكة " + profLabel
+                    + " وحدها. اختر من المحفظة بطاقة من نفس الشبكة قبل اللمسة — "
+                    + "رد الجهاز سيكشف: هل جدول AID لديه يتضمن " + profLabel + "؟");
+            prof.setTextSize(15);
+            prof.setTypeface(null, Typeface.BOLD);
+            prof.setPadding(0, dp(6), 0, dp(6));
+            box.addView(prof);
+        }
 
         TextView steps = new TextView(this);
         steps.setText("خطوات الاختبار:\n\n" +

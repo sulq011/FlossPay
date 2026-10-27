@@ -280,6 +280,77 @@ public class EmvCardTest {
         check("فحص مبلغ: اختلاف (⚠)", EmvDiag.amountCheckLine(40000, 50000).contains("⚠"));
         check("فحص مبلغ: الجهاز لم يرسل مبلغًا", EmvDiag.amountCheckLine(40000, -1).contains("لم يرسل"));
 
+        log("=== [18] فحص دعم الشبكات — بروفايل شبكة واحدة (build-13) ===");
+        // بطاقة أحادية الشبكة: PPSE يعلن Amex فقط — وتتصرف كبطاقة Amex كاملة
+        EmvCard amex = new EmvCard("378282246310005", "12/26", "SAD AM");
+        amex.setNetworkProfile(EmvCard.AID_AMEX);
+        String fciAmex = hex(amex.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00")));
+        check("بروفايل Amex: PPSE يعلن A0000000251010", fciAmex.contains(EmvCard.AID_AMEX));
+        check("بروفايل Amex: لا Visa في الدليل", !fciAmex.contains(EmvCard.AID_VISA));
+        check("بروفايل Amex: لا mada في الدليل", !fciAmex.contains(EmvCard.AID_MADA));
+        check("بروفايل Amex: لا MasterCard في الدليل", !fciAmex.contains(EmvCard.AID_MC));
+        check("بروفايل Amex: SELECT لـVisa مرفوض 6A82",
+                sw(amex.process(unhex("00A4040007" + EmvCard.AID_VISA + "00"))).equals("6A82"));
+        check("بروفايل Amex: SELECT لـAmex مقبول 9000",
+                sw(amex.process(unhex("00A4040007" + EmvCard.AID_AMEX + "00"))).equals("9000"));
+        check("بروفايل Amex: GPO ينجح",
+                sw(amex.process(unhex("80A800000C830A26800000000000000100000"))).equals("9000"));
+        String recAmex = hex(noSw(amex.process(unhex("00B2010C00"))));
+        check("بروفايل Amex: Track2 يحمل PAN الـ15 خانة (3782…)",
+                tlvValue(recAmex, "57").startsWith("378282246310005"));
+        String genAmex = hex(noSw(amex.process(unhex("80AE8000" + String.format("%02X", cdol1.length() / 2) + cdol1 + "00"))));
+        check("بروفايل Amex: GENERATE AC ينجح (9F26 بطول 8 بايت)",
+                tlvValue(genAmex, "9F26").length() == 16);
+
+        // جلسة كاملة تحت بروفايل Amex — التحليل يحسم: الجهاز يدعم الشبكة
+        final java.util.List<EmvDiag.Entry> logA = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard cA = new EmvCard("378282246310005", "12/26", "SAD AM");
+        cA.setNetworkProfile(EmvCard.AID_AMEX);
+        cA.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                logA.add(new EmvDiag.Entry(hex(cmd), hex(resp), logA.size() * 1.5));
+            }
+        });
+        cA.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        cA.process(unhex("00A4040007" + EmvCard.AID_AMEX + "00"));
+        cA.process(unhex("80A800000C830A26800000" + "000000010000"));
+        cA.process(unhex("00B2010C00"));
+        EmvDiag.Result resA = EmvDiag.analyze(logA, "Amex");
+        check("تحليل بروفايل Amex: يدعمها الجهاز ✔",
+                resA.networkSupported != null && resA.networkSupported.booleanValue());
+        check("تحليل بروفايل Amex: الشبكة المسجلة Amex", resA.networkProfile.equals("Amex"));
+        check("تحليل بروفايل Amex: aid يذكر Amex مع AID", resA.aid.contains("Amex") && resA.aid.contains("A0000000251010"));
+        check("تحليل بروفايل Amex: التشخيص يذكر الدعم", resA.verdict.contains("يقبل شبكة Amex"));
+
+        // جلسة توقفت بعد الدليل تحت بروفايل Visa — الجهاز لا يدعم Visa (نمط «الجهاز يدعم mada ولا يدعم Visa»)
+        final java.util.List<EmvDiag.Entry> logV = new java.util.ArrayList<EmvDiag.Entry>();
+        EmvCard cV = new EmvCard("4242424242424242", "12/26", "SAD AM");
+        cV.setNetworkProfile(EmvCard.AID_VISA);
+        cV.setListener(new EmvCard.Listener() {
+            @Override public void onExchange(byte[] cmd, byte[] resp, long micros) {
+                logV.add(new EmvDiag.Entry(hex(cmd), hex(resp), logV.size() * 1.5));
+            }
+        });
+        cV.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00"));
+        EmvDiag.Result resV = EmvDiag.analyze(logV, "Visa");
+        check("تحليل بروفايل Visa (توقف بعد الدليل): غير مدعومة ✘",
+                resV.networkSupported != null && !resV.networkSupported.booleanValue());
+        check("تحليل بروفايل Visa: التشخيص يذكر عدم الدعم", resV.verdict.contains("لا يدعم شبكة Visa"));
+
+        // بلا بروفايل: السلوك الافتراضي كما كان (رجريشن الشبكات الثلاث)
+        EmvCard def = new EmvCard("4000001234567899", "12/26", "SAD AM");
+        String fciDef = hex(def.process(unhex("00A404000E" + asciiHex("2PAY.SYS.DDF01") + "00")));
+        check("افتراضي بلا بروفايل: الدليل يعلن الشبكات الثلاث",
+                fciDef.contains(EmvCard.AID_MADA) && fciDef.contains(EmvCard.AID_VISA) && fciDef.contains(EmvCard.AID_MC));
+        check("افتراضي: SELECT لكل الشبكات يعمل (mada ثم MC)",
+                sw(def.process(unhex("00A4040007A000000228101000"))).equals("9000")
+                        && sw(def.process(unhex("00A4040007A000000004101000"))).equals("9000"));
+
+        // تصنيف الأوامر للشبكات الجديدة
+        check("classify: SELECT Amex", EmvDiag.classify("00A4040007" + EmvCard.AID_AMEX + "00").contains("Amex"));
+        check("classify: SELECT RuPay", EmvDiag.classify("00A4040007" + EmvCard.AID_RUPAY + "00").contains("RuPay"));
+        check("classify: SELECT Diners", EmvDiag.classify("00A4040007" + EmvCard.AID_DINERS + "00").contains("Diners"));
+
         System.out.println("\n=================================");
         System.out.println("PASS: " + passed + "  FAIL: " + failed);
         System.out.println(failed == 0 ? "✅ ALL TESTS GREEN — المحرك جاهز" : "❌ فشل " + failed + " اختبار");

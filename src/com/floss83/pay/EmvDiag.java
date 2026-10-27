@@ -48,11 +48,22 @@ public class EmvDiag {
         public boolean flossReader;  // جلسة قارئ FlossPay (عقدنا المغلق)
         public long amountMinor = -1;   // المبلغ الذي طلبه الجهاز (وحدات صغرى) أو -1 لو لم يصل
         public boolean amountMismatch;  // الجهاز أرسل مبالغ مختلفة في GPO وGEN AC — مؤشر خلل برمجي
+        public String networkProfile = "-"; // وضع فحص شبكة واحدة (build-13): الشبكة المعلنة أو "-"
+        public Boolean networkSupported;    // null=غير محسوم، TRUE=الجهاز يقبلها، FALSE=لا يدعمها
         public List<String> lines = new ArrayList<String>(); // تفصيل APDU بـ APDU
     }
 
     // ============ التحليل ============
     public static Result analyze(List<Entry> entries) {
+        return analyze(entries, null);
+    }
+
+    /**
+     * التحليل مع وضع فحص الشبكة الواحدة (build-13):
+     * الجلسة جرت وبطاقة المحفظة تعلن شبكة واحدة فقط (profileLabel).
+     * ردود الجهاز تحسم: اختار تطبيقها (يدعمها) أو قرأ الدليل ولم يختر (لا يدعمها).
+     */
+    public static Result analyze(List<Entry> entries, String profileLabel) {
         Result r = new Result();
         if (entries == null || entries.isEmpty()) {
             r.stageNum = 0; r.stage = "لا أوامر";
@@ -79,11 +90,7 @@ public class EmvDiag {
             if (kind.startsWith("SELECT PPSE")) hasPpse = true;
             else if (kind.startsWith("SELECT")) {
                 hasAidSelect = true;
-                String aid = kind.contains("mada") ? "mada (A0000002281010)"
-                        : kind.contains("Visa") ? "Visa (A0000000031010)"
-                        : kind.contains("MasterCard") ? "MasterCard (A0000000041010)"
-                        : kind.contains("FlossPay") ? "FlossPay (مغلق)" : kind;
-                r.aid = aid;
+                r.aid = aidLabel(kind);
                 r.kernel = kind.contains("Visa") ? "Kernel 3 (qVSDC)" : "Kernel 2 (M/Chip)";
             }
             else if (kind.equals("GPO")) {
@@ -158,6 +165,22 @@ public class EmvDiag {
                     + " ريال في GENERATE AC — مؤشر خلل برمجي واضح في تطبيق الجهاز.";
         }
 
+        // ===== وضع فحص الشبكة الواحدة (build-13) =====
+        if (profileLabel != null && !r.flossReader) {
+            r.networkProfile = profileLabel;
+            if (r.stageNum >= 2) {
+                r.networkSupported = Boolean.TRUE;
+                r.verdict += " — 🛰 فحص الشبكة: الجهاز يقبل شبكة " + profileLabel
+                        + " (اختر تطبيقها وتابع المسار) ✔.";
+            } else if (r.stageNum == 1) {
+                r.networkSupported = Boolean.FALSE;
+                r.verdict += " — 🛰 فحص الشبكة: الجهاز لا يدعم شبكة " + profileLabel
+                        + " — قرأ الدليل ولم يختر تطبيقها: جدول AID لديه لا يتضمنها ✘.";
+            } else {
+                r.verdict += " — 🛰 فحص الشبكة: غير حاسم (الجهاز لم يصل للدليل أصلًا).";
+            }
+        }
+
         if (r.errors > 0) {
             r.verdict += " — لاحظ " + r.errors + " ردًّا غير 9000 (راجع «←» في التفصيل: ردود 6A86/6D00 "
                     + "من البطاقة تشير لأوامر غير قياسية أرسلها الجهاز = مؤشر خلل برمجي عنده، "
@@ -169,6 +192,21 @@ public class EmvDiag {
     /** تنسيق مبلغ (وحدات صغرى → نص بخانتين عشريتين). */
     static String formatAmount(long minor) {
         return String.format(java.util.Locale.US, "%.2f", minor / 100.0);
+    }
+
+    /** اسم التطبيق المختار مع AID (من تصنيف classify). */
+    static String aidLabel(String kind) {
+        String n = kind.replace("SELECT AID ", "");
+        if (n.equals("mada")) return "mada (A0000002281010)";
+        if (n.equals("Visa")) return "Visa (A0000000031010)";
+        if (n.equals("MasterCard")) return "MasterCard (A0000000041010)";
+        if (n.equals("Amex")) return "Amex (A0000000251010)";
+        if (n.equals("JCB")) return "JCB (A0000000651010)";
+        if (n.equals("Discover")) return "Discover (A0000000151010)";
+        if (n.equals("Diners")) return "Diners (A0000001523010)";
+        if (n.equals("RuPay")) return "RuPay (A0000005241010)";
+        if (kind.contains("FlossPay")) return "FlossPay (مغلق)";
+        return kind;
     }
 
     /**
@@ -223,6 +261,11 @@ public class EmvDiag {
             if (data.contains(EmvCard.AID_MADA)) return "SELECT AID mada";
             if (data.contains(EmvCard.AID_VISA)) return "SELECT AID Visa";
             if (data.contains(EmvCard.AID_MC)) return "SELECT AID MasterCard";
+            if (data.contains(EmvCard.AID_AMEX)) return "SELECT AID Amex";
+            if (data.contains(EmvCard.AID_JCB)) return "SELECT AID JCB";
+            if (data.contains(EmvCard.AID_DISCOVER)) return "SELECT AID Discover";
+            if (data.contains(EmvCard.AID_DINERS)) return "SELECT AID Diners";
+            if (data.contains(EmvCard.AID_RUPAY)) return "SELECT AID RuPay";
             if (data.contains(EmvCard.AID_FLOSS83)) return "SELECT AID FlossPay";
             return "SELECT AID آخر: " + data;
         }
